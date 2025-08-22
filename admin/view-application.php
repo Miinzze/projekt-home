@@ -298,8 +298,7 @@ $answers = fetchAll("
             <div class="user-info">
                 <h1><?php echo htmlspecialchars($application['discord_username']); ?></h1>
                 <div class="meta">
-                    <strong>Discord ID:</strong> <?php echo htmlspecialchars($application['discord_id']); ?><br>
-                    <strong>E-Mail:</strong> <?php echo htmlspecialchars($application['discord_email'] ?? 'Nicht verfügbar'); ?>
+                    <strong>Discord ID:</strong> <?php echo htmlspecialchars($application['discord_id']); ?>
                 </div>
             </div>
             
@@ -323,10 +322,23 @@ $answers = fetchAll("
                 <p><?php echo date('d.m.Y H:i:s', strtotime($application['created_at'])); ?></p>
             </div>
             
+            <?php if ($application['score_percentage'] > 0): ?>
             <div class="info-card">
-                <h3>🌐 IP-Adresse</h3>
-                <p><?php echo htmlspecialchars($application['ip_address']); ?></p>
+                <h3>🎯 Bewertung</h3>
+                <p>
+                    <strong style="color: <?php 
+                        echo $application['score_percentage'] >= 70 ? '#10b981' : 
+                            ($application['score_percentage'] >= 50 ? '#f59e0b' : '#ef4444'); 
+                    ?>;">
+                        <?php echo round($application['score_percentage'], 1); ?>%
+                    </strong>
+                    <br>
+                    <small style="color: #999;">
+                        <?php echo $application['correct_answers']; ?>/<?php echo $application['total_questions']; ?> richtig
+                    </small>
+                </p>
             </div>
+            <?php endif; ?>
             
             <?php if ($application['reviewed_by_name']): ?>
             <div class="info-card">
@@ -358,6 +370,11 @@ $answers = fetchAll("
                     <div class="answer-type">
                         Frage <?php echo $index + 1; ?> • 
                         <?php echo $answer['question_type'] === 'multiple_choice' ? '📋 Multiple Choice' : '✏️ Textfeld'; ?>
+                        <?php if ($answer['is_correct']): ?>
+                            <span style="color: #10b981; margin-left: 1rem;">✅ Korrekt</span>
+                        <?php elseif ($answer['auto_evaluated']): ?>
+                            <span style="color: #ef4444; margin-left: 1rem;">❌ Falsch</span>
+                        <?php endif; ?>
                     </div>
                     <div class="question-title">
                         <?php echo htmlspecialchars($answer['question']); ?>
@@ -384,6 +401,11 @@ $answers = fetchAll("
             <div class="appointment-message">
                 <?php echo htmlspecialchars($application['appointment_message']); ?>
             </div>
+            <?php if ($application['appointment_sent_at']): ?>
+            <small style="color: #999; margin-top: 0.5rem; display: block;">
+                Gesendet am: <?php echo date('d.m.Y H:i:s', strtotime($application['appointment_sent_at'])); ?>
+            </small>
+            <?php endif; ?>
         </div>
         <?php endif; ?>
         
@@ -415,8 +437,8 @@ $answers = fetchAll("
     
     <script>
         function sendAppointment() {
-            if (window.opener && window.opener.sendAppointment) {
-                window.opener.sendAppointment(<?php echo $applicationId; ?>);
+            if (window.opener && window.opener.sendAppointmentMessage) {
+                window.opener.sendAppointmentMessage(<?php echo $applicationId; ?>);
                 window.close();
             } else {
                 alert('Funktion nur im Admin-Panel verfügbar.');
@@ -427,9 +449,6 @@ $answers = fetchAll("
         document.addEventListener('DOMContentLoaded', function() {
             document.body.focus();
         });
-    </script>
-</body>
-</html>
         
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
@@ -450,3 +469,6 @@ $answers = fetchAll("
                 sendAppointment();
             }
         });
+    </script>
+</body>
+</html>

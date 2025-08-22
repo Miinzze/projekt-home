@@ -4,7 +4,7 @@ require_once 'config/config.php';
 // Server-Daten aus der Datenbank laden
 $serverName = getServerSetting('server_name', 'OUTBREAK RP');
 $maxPlayers = getServerSetting('max_players', '64');
-$currentPlayers = getServerSetting('current_players', '47');
+$currentPlayers = getServerSetting('current_players', '0'); // Korrigiert: zeigt echte Spielerzahl
 $serverIP = getServerSetting('server_ip', 'outbreak-rp.de');
 $discordLink = getServerSetting('discord_link', '#');
 $isOnline = getServerSetting('is_online', '1');
@@ -20,6 +20,9 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
                   LEFT JOIN admins a ON n.author_id = a.id 
                   WHERE n.is_published = 1 
                   ORDER BY n.created_at DESC LIMIT 3");
+
+// Roadmap laden (nur aktive Einträge)
+$roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER BY priority ASC, created_at DESC");
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -43,6 +46,9 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
                 <li><a href="#rules">Regeln</a></li>
                 <?php if (!empty($news)): ?>
                 <li><a href="#news">News</a></li>
+                <?php endif; ?>
+                <?php if (!empty($roadmapItems)): ?>
+                <li><a href="#roadmap">Roadmap</a></li>
                 <?php endif; ?>
                 <?php if ($whitelistEnabled): ?>
                 <li><a href="#whitelist">Whitelist</a></li>
@@ -141,6 +147,240 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
             <p style="color: #cccccc; font-size: 0.9rem; margin-top: 0.5rem;">Klicken zum Kopieren | Drücke F8 in FiveM</p>
         </div>
     </section>
+
+    <!-- Roadmap Section - Timeline Version (3 Items) -->
+    <?php if (!empty($roadmapItems)): ?>
+    <section id="roadmap" class="section">
+        <div class="roadmap-section-header">
+            <h2>🗺️ Entwicklungs-Roadmap</h2>
+            <p class="roadmap-section-subtitle">
+                Hier siehst du unsere wichtigsten geplanten Features und den aktuellen Entwicklungsstand. 
+                Von neuen Gameplay-Mechaniken bis hin zu technischen Verbesserungen.
+            </p>
+        </div>
+        
+        <div class="roadmap-timeline">
+            <?php 
+            // Roadmap Items nach Priorität und Status sortieren
+            usort($roadmapItems, function($a, $b) {
+                // Erst nach Status-Priorität (in_progress > planned > testing > completed > cancelled)
+                $statusPriority = [
+                    'in_progress' => 1,
+                    'planned' => 2,
+                    'testing' => 3,
+                    'completed' => 4,
+                    'cancelled' => 5
+                ];
+                
+                $aStatusPrio = $statusPriority[$a['status']] ?? 6;
+                $bStatusPrio = $statusPriority[$b['status']] ?? 6;
+                
+                if ($aStatusPrio !== $bStatusPrio) {
+                    return $aStatusPrio - $bStatusPrio;
+                }
+                
+                // Dann nach Priorität
+                if ($a['priority'] !== $b['priority']) {
+                    return $a['priority'] - $b['priority'];
+                }
+                
+                // Zuletzt nach Erstellungsdatum
+                return strtotime($b['created_at']) - strtotime($a['created_at']);
+            });
+            
+            // NUR 3 Items für die Timeline anzeigen
+            $timelineItems = array_slice($roadmapItems, 0, 3);
+            ?>
+            
+            <?php foreach ($timelineItems as $index => $item): ?>
+            <div class="timeline-item <?php echo $item['status']; ?>" data-priority="<?php echo $item['priority']; ?>">
+                <!-- Priority Indicator -->
+                <?php if ($item['priority'] <= 2): ?>
+                <div class="timeline-priority priority-<?php echo $item['priority']; ?>">
+                    <?php echo $item['priority']; ?>
+                </div>
+                <?php endif; ?>
+                
+                <div class="timeline-content">
+                    <h3 class="timeline-title"><?php echo htmlspecialchars($item['title']); ?></h3>
+                    <p class="timeline-description">
+                        <?php 
+                        $description = htmlspecialchars($item['description']);
+                        echo strlen($description) > 120 ? substr($description, 0, 120) . '...' : $description;
+                        ?>
+                    </p>
+                    
+                    <div class="timeline-meta">
+                        <span class="timeline-status">
+                            <?php
+                            $statusIcons = [
+                                'planned' => '📋',
+                                'in_progress' => '⚙️',
+                                'testing' => '🧪',
+                                'completed' => '✅',
+                                'cancelled' => '❌'
+                            ];
+                            
+                            $statusTexts = [
+                                'planned' => 'Geplant',
+                                'in_progress' => 'In Arbeit',
+                                'testing' => 'Testing',
+                                'completed' => 'Fertig',
+                                'cancelled' => 'Abgebrochen'
+                            ];
+                            
+                            echo ($statusIcons[$item['status']] ?? '📋') . ' ' . ($statusTexts[$item['status']] ?? 'Unbekannt');
+                            ?>
+                        </span>
+                        
+                        <?php if ($item['estimated_date']): ?>
+                        <span class="timeline-date">
+                            📅 <?php echo date('M Y', strtotime($item['estimated_date'])); ?>
+                        </span>
+                        <?php elseif ($item['completion_date']): ?>
+                        <span class="timeline-date">
+                            ✅ <?php echo date('M Y', strtotime($item['completion_date'])); ?>
+                        </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        
+        <!-- Roadmap Progress Summary -->
+        <?php
+        $totalItems = count($roadmapItems);
+        $completedItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'completed'; }));
+        $inProgressItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'in_progress'; }));
+        $plannedItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'planned'; }));
+        $testingItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'testing'; }));
+        
+        $progressPercentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 1) : 0;
+        ?>
+        
+        <div class="roadmap-progress">
+            <div class="progress-item">
+                <div class="progress-dot completed"></div>
+                <span><?php echo $completedItems; ?> Abgeschlossen</span>
+            </div>
+            <div class="progress-item">
+                <div class="progress-dot in_progress"></div>
+                <span><?php echo $inProgressItems; ?> In Arbeit</span>
+            </div>
+            <div class="progress-item">
+                <div class="progress-dot testing"></div>
+                <span><?php echo $testingItems; ?> Testing</span>
+            </div>
+            <div class="progress-item">
+                <div class="progress-dot planned"></div>
+                <span><?php echo $plannedItems; ?> Geplant</span>
+            </div>
+            <div class="progress-item" style="margin-left: 1rem; font-weight: 600; color: #ff4444;">
+                📊 <?php echo $progressPercentage; ?>% Fortschritt
+            </div>
+        </div>
+        
+        <!-- Link zur vollständigen Roadmap -->
+        <?php if (count($roadmapItems) > 3): ?>
+        <div style="text-align: center; margin-top: 2rem;">
+            <p style="color: #ccc; font-size: 0.9rem;">
+                <?php echo count($roadmapItems) - 3; ?> weitere Einträge verfügbar
+            </p>
+            <button onclick="showFullRoadmap()" class="btn btn-secondary" style="padding: 0.75rem 2rem;">
+                🗺️ Vollständige Roadmap anzeigen
+            </button>
+        </div>
+        <?php endif; ?>
+    </section>
+    
+    <!-- Full Roadmap Modal -->
+    <div id="fullRoadmapModal" class="roadmap-modal">
+        <div class="roadmap-modal-content">
+            <div class="roadmap-modal-header">
+                <h2 class="roadmap-modal-title">🗺️ Vollständige Roadmap</h2>
+                <button class="roadmap-close" onclick="closeFullRoadmap()">&times;</button>
+            </div>
+            
+            <div class="roadmap-grid">
+                <?php foreach ($roadmapItems as $item): ?>
+                <div class="roadmap-card">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <span style="font-size: 1.5rem;">
+                            <?php
+                            $statusIcons = [
+                                'planned' => '📋',
+                                'in_progress' => '⚙️',
+                                'testing' => '🧪',
+                                'completed' => '✅',
+                                'cancelled' => '❌'
+                            ];
+                            echo $statusIcons[$item['status']] ?? '📋';
+                            ?>
+                        </span>
+                        <h3 style="color: #ff4444; margin: 0; flex: 1;"><?php echo htmlspecialchars($item['title']); ?></h3>
+                        <?php if ($item['priority'] <= 2): ?>
+                        <div class="timeline-priority priority-<?php echo $item['priority']; ?>" style="position: static; margin: 0;">
+                            <?php echo $item['priority']; ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <p style="color: #ccc; line-height: 1.5; margin-bottom: 1rem;">
+                        <?php echo htmlspecialchars($item['description']); ?>
+                    </p>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #999;">
+                        <span class="timeline-status <?php echo $item['status']; ?>">
+                            <?php
+                            $statusTexts = [
+                                'planned' => 'Geplant',
+                                'in_progress' => 'In Arbeit',
+                                'testing' => 'Testing',
+                                'completed' => 'Abgeschlossen',
+                                'cancelled' => 'Abgebrochen'
+                            ];
+                            echo $statusTexts[$item['status']] ?? 'Unbekannt';
+                            ?>
+                        </span>
+                        
+                        <?php if ($item['estimated_date']): ?>
+                        <span>📅 <?php echo date('M Y', strtotime($item['estimated_date'])); ?></span>
+                        <?php elseif ($item['completion_date']): ?>
+                        <span>✅ <?php echo date('M Y', strtotime($item['completion_date'])); ?></span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+            
+            <!-- Modal Footer mit Statistiken -->
+            <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <div class="roadmap-progress">
+                    <div class="progress-item">
+                        <div class="progress-dot completed"></div>
+                        <span><?php echo $completedItems; ?> Abgeschlossen</span>
+                    </div>
+                    <div class="progress-item">
+                        <div class="progress-dot in_progress"></div>
+                        <span><?php echo $inProgressItems; ?> In Arbeit</span>
+                    </div>
+                    <div class="progress-item">
+                        <div class="progress-dot testing"></div>
+                        <span><?php echo $testingItems; ?> Testing</span>
+                    </div>
+                    <div class="progress-item">
+                        <div class="progress-dot planned"></div>
+                        <span><?php echo $plannedItems; ?> Geplant</span>
+                    </div>
+                    <div class="progress-item" style="margin-left: 1rem; font-weight: 600; color: #ff4444;">
+                        📊 <?php echo $progressPercentage; ?>% Fortschritt (<?php echo $totalItems; ?> Items insgesamt)
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Whitelist Section -->
     <?php if ($whitelistEnabled): ?>
@@ -287,27 +527,6 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
             }
         });
 
-        // Player count animation
-        function updatePlayerCount() {
-            const statusText = document.querySelector('.status span:last-child');
-            if (statusText) {
-                const current = parseInt(statusText.textContent.match(/(\d+)\/\d+ Spieler/)[1]);
-                const variation = Math.floor(Math.random() * 6) - 3; // -3 to +3
-                const newCount = Math.max(0, Math.min(<?php echo $maxPlayers; ?>, current + variation));
-                
-                if (newCount !== current) {
-                    statusText.textContent = `Server <?php echo $isOnline ? 'Online' : 'Offline'; ?> - ${newCount}/<?php echo $maxPlayers; ?> Spieler`;
-                    
-                    // Update in background
-                    fetch('admin/ajax/update_players.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ current_players: newCount })
-                    }).catch(err => console.log('Player count update failed'));
-                }
-            }
-        }
-
         // Copy connect command
         function copyConnect() {
             const connectText = 'connect <?php echo htmlspecialchars($serverIP); ?>';
@@ -335,9 +554,6 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
             <?php endif; ?>
         }
 
-        // Update player count every 30 seconds
-        setInterval(updatePlayerCount, 30000);
-
         // Feature card animations on scroll
         const observerOptions = {
             threshold: 0.1,
@@ -359,6 +575,179 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
             card.style.transform = 'translateY(30px)';
             card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
             observer.observe(card);
+        });
+
+        // Timeline Animation beim Scrollen
+        document.addEventListener('DOMContentLoaded', function() {
+            const timelineItems = document.querySelectorAll('.timeline-item');
+            
+            const timelineObserverOptions = {
+                threshold: 0.2,
+                rootMargin: '0px 0px -50px 0px'
+            };
+            
+            const timelineObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('animate-in');
+                    }
+                });
+            }, timelineObserverOptions);
+            
+            timelineItems.forEach((item, index) => {
+                // Gestaffeltes Erscheinen
+                item.style.transitionDelay = `${index * 0.2}s`;
+                timelineObserver.observe(item);
+            });
+            
+            // Smooth scroll zu Timeline-Items
+            timelineItems.forEach(item => {
+                item.addEventListener('click', function() {
+                    const rect = this.getBoundingClientRect();
+                    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+                    const targetY = scrollTop + rect.top - 100;
+                    
+                    window.scrollTo({
+                        top: targetY,
+                        behavior: 'smooth'
+                    });
+                });
+            });
+        });
+
+        // Vollständige Roadmap anzeigen
+        function showFullRoadmap() {
+            const modal = document.getElementById('fullRoadmapModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden'; // Verhindert Hintergrund-Scrolling
+                
+                // Escape-Key zum Schließen
+                document.addEventListener('keydown', closeOnEscape);
+            }
+        }
+
+        // Vollständige Roadmap schließen
+        function closeFullRoadmap() {
+            const modal = document.getElementById('fullRoadmapModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = ''; // Scrolling wieder aktivieren
+                
+                // Event Listener entfernen
+                document.removeEventListener('keydown', closeOnEscape);
+            }
+        }
+
+        // Escape-Key Handler
+        function closeOnEscape(e) {
+            if (e.key === 'Escape') {
+                closeFullRoadmap();
+            }
+        }
+
+        // Modal bei Klick außerhalb schließen
+        document.addEventListener('DOMContentLoaded', function() {
+            const modal = document.getElementById('fullRoadmapModal');
+            if (modal) {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        closeFullRoadmap();
+                    }
+                });
+            }
+        });
+
+        // Parallax-Effekt für Timeline-Linie (reduziert)
+        window.addEventListener('scroll', function() {
+            const timeline = document.querySelector('.roadmap-timeline');
+            if (timeline) {
+                const scrolled = window.pageYOffset;
+                const parallax = scrolled * 0.02; // Sehr subtiler Effekt
+                
+                timeline.style.transform = `translateY(${parallax}px)`;
+            }
+        });
+
+        // Automatische Spielerzahl-Updates alle 30 Sekunden
+        function updatePlayerCount() {
+            fetch("admin/ajax/get-server-status.php")
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Spielerzahl in der Anzeige aktualisieren
+                        const statusElements = document.querySelectorAll(".status span:last-child");
+                        statusElements.forEach(element => {
+                            element.textContent = `Server ${data.online ? "Online" : "Offline"} - ${data.current_players}/${data.max_players} Spieler`;
+                        });
+                        
+                        // Status-Punkt aktualisieren
+                        const statusDots = document.querySelectorAll(".status-dot");
+                        statusDots.forEach(dot => {
+                            dot.style.backgroundColor = data.online ? "#00ff00" : "#ff4444";
+                        });
+                    } else {
+                        console.log("Server Status Update Failed:", data.error);
+                    }
+                })
+                .catch(error => {
+                    console.log("Server Status Error:", error);
+                });
+        }
+
+        // Erste Aktualisierung nach 5 Sekunden
+        setTimeout(updatePlayerCount, 5000);
+
+        // Dann alle 30 Sekunden
+        setInterval(updatePlayerCount, 30000);
+
+        // Easter Egg: Klick auf Timeline-Linie
+        document.addEventListener('DOMContentLoaded', function() {
+            const timeline = document.querySelector('.roadmap-timeline');
+            let clickCount = 0;
+            
+            if (timeline) {
+                timeline.addEventListener('click', function(e) {
+                    // Nur wenn auf die Timeline-Linie geklickt wird (nicht auf Items)
+                    if (e.target === this) {
+                        clickCount++;
+                        if (clickCount === 3) { // 3 Klicks für Easter Egg
+                            // Easter Egg
+                            const confetti = document.createElement('div');
+                            confetti.innerHTML = '🎉✨🚀';
+                            confetti.style.cssText = `
+                                position: fixed;
+                                top: 50%;
+                                left: 50%;
+                                font-size: 2rem;
+                                z-index: 10000;
+                                animation: confettiPop 1.5s ease-out forwards;
+                                pointer-events: none;
+                                text-align: center;
+                            `;
+                            document.body.appendChild(confetti);
+                            
+                            setTimeout(() => confetti.remove(), 1500);
+                            clickCount = 0;
+                            
+                            // Konfetti-Animation
+                            const style = document.createElement('style');
+                            style.textContent = `
+                                @keyframes confettiPop {
+                                    0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 0; }
+                                    50% { transform: translate(-50%, -50%) scale(1.5) rotate(180deg); opacity: 1; }
+                                    100% { transform: translate(-50%, -50%) scale(0) rotate(360deg); opacity: 0; }
+                                }
+                            `;
+                            document.head.appendChild(style);
+                            setTimeout(() => style.remove(), 1500);
+                            
+                            // Zeige kurz alle Roadmap Items
+                            showFullRoadmap();
+                        }
+                    }
+                });
+            }
         });
     </script>
 </body>

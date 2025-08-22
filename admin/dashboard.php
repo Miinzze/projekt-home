@@ -10,7 +10,7 @@ $currentUser = getCurrentUser();
 
 // Aktuelle Seite ermitteln
 $page = $_GET['page'] ?? 'overview';
-$allowedPages = ['overview', 'settings', 'rules', 'news', 'users', 'logs', 'whitelist', 'whitelist_questions', 'activity'];
+$allowedPages = ['overview', 'settings', 'rules', 'news', 'users', 'logs', 'whitelist', 'whitelist_questions', 'activity', 'roadmap'];
 
 if (!in_array($page, $allowedPages)) {
     $page = 'overview';
@@ -29,6 +29,9 @@ switch ($page) {
         break;
     case 'whitelist_questions':
         requirePermission('whitelist.questions.manage');
+        break;
+    case 'roadmap':
+        requirePermission('settings.read'); // Oder neue Permission 'roadmap.manage'
         break;
     case 'logs':
         requirePermission('logs.read');
@@ -130,6 +133,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'update_manual_score':
                 if (hasPermission('whitelist.update')) {
                     handleUpdateManualScore();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
+            case 'add_roadmap_item':
+                if (hasPermission('settings.update')) {
+                    handleAddRoadmapItem();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
+            case 'update_roadmap_item':
+                if (hasPermission('settings.update')) {
+                    handleUpdateRoadmapItem();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
+            case 'delete_roadmap_item':
+                if (hasPermission('settings.update')) {
+                    handleDeleteRoadmapItem();
                 } else {
                     setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
                 }
@@ -583,6 +607,158 @@ function handleUpdateApplicationStatus() {
     }
 }
 
+function handleAddRoadmapItem() {
+    $title = sanitizeInput($_POST['roadmap_title'] ?? '');
+    $description = sanitizeInput($_POST['roadmap_description'] ?? '');
+    $status = $_POST['roadmap_status'] ?? 'planned';
+    $priority = (int)($_POST['roadmap_priority'] ?? 3);
+    $estimatedDate = $_POST['roadmap_estimated_date'] ?? null;
+    
+    if (empty($title) || empty($description)) {
+        setFlashMessage('error', 'Titel und Beschreibung sind erforderlich.');
+        return;
+    }
+    
+    $validStatuses = ['planned', 'in_progress', 'testing', 'completed', 'cancelled'];
+    if (!in_array($status, $validStatuses)) {
+        setFlashMessage('error', 'Ungültiger Status.');
+        return;
+    }
+    
+    if ($priority < 1 || $priority > 5) {
+        setFlashMessage('error', 'Priorität muss zwischen 1 und 5 liegen.');
+        return;
+    }
+    
+    $data = [
+        'title' => $title,
+        'description' => $description,
+        'status' => $status,
+        'priority' => $priority,
+        'created_by' => getCurrentUser()['id']
+    ];
+    
+    if ($estimatedDate && strtotime($estimatedDate)) {
+        $data['estimated_date'] = $estimatedDate;
+    }
+    
+    if ($status === 'completed') {
+        $data['completion_date'] = date('Y-m-d H:i:s');
+    }
+    
+    $result = insertData('roadmap_items', $data);
+    
+    if ($result) {
+        logAdminActivity(
+            getCurrentUser()['id'],
+            'roadmap_item_created',
+            "Roadmap-Eintrag '{$title}' erstellt",
+            'roadmap_item',
+            $result,
+            null,
+            ['title' => $title, 'status' => $status, 'priority' => $priority]
+        );
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich hinzugefügt.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Hinzufügen des Roadmap-Eintrags.');
+    }
+}
+
+function handleUpdateRoadmapItem() {
+    $id = (int)($_POST['roadmap_id'] ?? 0);
+    $title = sanitizeInput($_POST['roadmap_title'] ?? '');
+    $description = sanitizeInput($_POST['roadmap_description'] ?? '');
+    $status = $_POST['roadmap_status'] ?? 'planned';
+    $priority = (int)($_POST['roadmap_priority'] ?? 3);
+    $estimatedDate = $_POST['roadmap_estimated_date'] ?? null;
+    $active = isset($_POST['is_active']) ? 1 : 0;
+    
+    if ($id <= 0 || empty($title) || empty($description)) {
+        setFlashMessage('error', 'Ungültige Roadmap-Daten.');
+        return;
+    }
+    
+    $validStatuses = ['planned', 'in_progress', 'testing', 'completed', 'cancelled'];
+    if (!in_array($status, $validStatuses)) {
+        setFlashMessage('error', 'Ungültiger Status.');
+        return;
+    }
+    
+    $oldItem = fetchOne("SELECT * FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    $data = [
+        'title' => $title,
+        'description' => $description,
+        'status' => $status,
+        'priority' => $priority,
+        'is_active' => $active,
+        'updated_by' => getCurrentUser()['id']
+    ];
+    
+    if ($estimatedDate && strtotime($estimatedDate)) {
+        $data['estimated_date'] = $estimatedDate;
+    } else {
+        $data['estimated_date'] = null;
+    }
+    
+    // Completion date setzen/entfernen
+    if ($status === 'completed' && $oldItem['status'] !== 'completed') {
+        $data['completion_date'] = date('Y-m-d H:i:s');
+    } elseif ($status !== 'completed' && $oldItem['status'] === 'completed') {
+        $data['completion_date'] = null;
+    }
+    
+    $result = updateData('roadmap_items', $data, 'id = :id', ['id' => $id]);
+    
+    if ($result !== false) {
+        logAdminActivity(
+            getCurrentUser()['id'],
+            'roadmap_item_updated',
+            "Roadmap-Eintrag '{$title}' bearbeitet",
+            'roadmap_item',
+            $id,
+            $oldItem,
+            ['title' => $title, 'status' => $status, 'priority' => $priority, 'active' => $active]
+        );
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich aktualisiert.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Aktualisieren des Roadmap-Eintrags.');
+    }
+}
+
+function handleDeleteRoadmapItem() {
+    $id = (int)($_POST['roadmap_id'] ?? 0);
+    
+    if ($id <= 0) {
+        setFlashMessage('error', 'Ungültige Roadmap-ID.');
+        return;
+    }
+    
+    $item = fetchOne("SELECT * FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    $result = executeQuery("DELETE FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    if ($result) {
+        if ($item) {
+            logAdminActivity(
+                getCurrentUser()['id'],
+                'roadmap_item_deleted',
+                "Roadmap-Eintrag '{$item['title']}' gelöscht",
+                'roadmap_item',
+                $id,
+                $item,
+                null
+            );
+        }
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich gelöscht.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Löschen des Roadmap-Eintrags.');
+    }
+}
+
 function handleUpdateManualScore() {
     $applicationId = (int)($_POST['application_id'] ?? 0);
     $answerEvaluations = $_POST['answer_evaluations'] ?? [];
@@ -752,6 +928,16 @@ if ($currentUser['role'] === 'super_admin') {
             </a>
             <?php endif; ?>
             
+            <?php if (hasPermission('settings.read')): ?>
+            <a href="?page=roadmap" class="nav-button <?php echo $page === 'roadmap' ? 'active' : ''; ?>">
+                <span class="icon">🗺️</span>
+                <div class="text">
+                    <span class="title">Roadmap</span>
+                    <span class="subtitle">Entwicklungsplan verwalten</span>
+                </div>
+            </a>
+            <?php endif; ?>
+
             <?php if (hasPermission('rules.read')): ?>
             <a href="?page=rules" class="nav-button <?php echo $page === 'rules' ? 'active' : ''; ?>">
                 <span class="icon">📋</span>
@@ -820,6 +1006,7 @@ if ($currentUser['role'] === 'super_admin') {
                 </div>
             </a>
         </div>
+        
         
         <!-- Dashboard Overview Section -->
         <div id="overview" class="content-section <?php echo $page === 'overview' ? 'active' : ''; ?>">
@@ -1039,6 +1226,189 @@ if ($currentUser['role'] === 'super_admin') {
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php if (hasPermission('settings.read') && $page === 'roadmap'): ?>
+        <div id="roadmap" class="content-section active">
+            <div class="admin-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h2>🗺️ Roadmap verwalten</h2>
+                    <div style="display: flex; gap: 1rem;">
+                        <select id="roadmapStatusFilter" onchange="filterRoadmapItems()" class="form-control" style="width: auto;">
+                            <option value="">Alle Status</option>
+                            <option value="planned">Geplant</option>
+                            <option value="in_progress">In Arbeit</option>
+                            <option value="testing">Testing</option>
+                            <option value="completed">Abgeschlossen</option>
+                            <option value="cancelled">Abgebrochen</option>
+                        </select>
+                        <?php if (hasPermission('settings.update')): ?>
+                        <button onclick="openModal('addRoadmapModal')" class="btn btn-primary">➕ Neuen Eintrag hinzufügen</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <?php 
+                $roadmapItems = fetchAll("
+                    SELECT r.*, 
+                        creator.username as created_by_name,
+                        updater.username as updated_by_name
+                    FROM roadmap_items r 
+                    LEFT JOIN admins creator ON r.created_by = creator.id
+                    LEFT JOIN admins updater ON r.updated_by = updater.id
+                    ORDER BY r.priority ASC, r.created_at DESC
+                "); 
+                ?>
+                
+                <?php if (!empty($roadmapItems)): ?>
+                <div class="data-table">
+                    <table class="table" id="roadmapTable">
+                        <thead>
+                            <tr>
+                                <th>📈 Priorität</th>
+                                <th>🎯 Titel</th>
+                                <th>📝 Beschreibung</th>
+                                <th>📊 Status</th>
+                                <th>📅 Geschätzt</th>
+                                <th>👤 Ersteller</th>
+                                <th>📄 Aktiv</th>
+                                <th>⚡ Aktionen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($roadmapItems as $item): ?>
+                            <tr data-status="<?php echo $item['status']; ?>">
+                                <td>
+                                    <span class="priority-badge priority-<?php echo $item['priority']; ?>">
+                                        <?php echo $item['priority']; ?>
+                                        <?php if ($item['priority'] == 1): ?>🔥<?php endif; ?>
+                                    </span>
+                                </td>
+                                <td><strong><?php echo htmlspecialchars($item['title']); ?></strong></td>
+                                <td><?php echo htmlspecialchars(substr($item['description'], 0, 100)) . '...'; ?></td>
+                                <td>
+                                    <?php
+                                    $statusColors = [
+                                        'planned' => '#6b7280',
+                                        'in_progress' => '#f59e0b', 
+                                        'testing' => '#3b82f6',
+                                        'completed' => '#10b981',
+                                        'cancelled' => '#ef4444'
+                                    ];
+                                    $statusLabels = [
+                                        'planned' => '📋 Geplant',
+                                        'in_progress' => '⚙️ In Arbeit',
+                                        'testing' => '🧪 Testing',
+                                        'completed' => '✅ Abgeschlossen',
+                                        'cancelled' => '❌ Abgebrochen'
+                                    ];
+                                    ?>
+                                    <span style="color: <?php echo $statusColors[$item['status']] ?? '#6b7280'; ?>">
+                                        <?php echo $statusLabels[$item['status']] ?? $item['status']; ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <?php if ($item['estimated_date']): ?>
+                                        <?php echo date('M Y', strtotime($item['estimated_date'])); ?>
+                                    <?php else: ?>
+                                        <span style="color: var(--gray);">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php echo htmlspecialchars($item['created_by_name'] ?? 'Unbekannt'); ?>
+                                    <br><small style="color: var(--gray);">
+                                        <?php echo date('d.m.Y', strtotime($item['created_at'])); ?>
+                                    </small>
+                                </td>
+                                <td>
+                                    <span class="badge <?php echo $item['is_active'] ? 'badge-success' : 'badge-danger'; ?>">
+                                        <?php echo $item['is_active'] ? '✅ Aktiv' : '❌ Inaktiv'; ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <?php if (hasPermission('settings.update')): ?>
+                                        <button onclick="editRoadmapItem(<?php echo htmlspecialchars(json_encode($item)); ?>)" 
+                                                class="btn btn-small btn-edit">✏️ Bearbeiten</button>
+                                        <button onclick="deleteRoadmapItem(<?php echo $item['id']; ?>)" 
+                                                class="btn btn-small btn-delete">🗑️ Löschen</button>
+                                        <?php endif; ?>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Roadmap Statistiken -->
+                <div style="margin-top: 2rem;">
+                    <h3 style="color: var(--primary); margin-bottom: 1rem;">📊 Roadmap-Statistiken</h3>
+                    <?php
+                    $stats = fetchOne("
+                        SELECT 
+                            COUNT(*) as total_items,
+                            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_items,
+                            SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_items,
+                            SUM(CASE WHEN status = 'planned' THEN 1 ELSE 0 END) as planned_items,
+                            SUM(CASE WHEN priority = 1 THEN 1 ELSE 0 END) as high_priority_items,
+                            ROUND((SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) / COUNT(*)) * 100, 1) as completion_percentage
+                        FROM roadmap_items 
+                        WHERE is_active = 1
+                    ");
+                    ?>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">📊</div>
+                            <h3><?php echo $stats['total_items'] ?? 0; ?></h3>
+                            <p>Gesamt Einträge</p>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">✅</div>
+                            <h3><?php echo $stats['completed_items'] ?? 0; ?></h3>
+                            <p>Abgeschlossen</p>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">⚙️</div>
+                            <h3><?php echo $stats['in_progress_items'] ?? 0; ?></h3>
+                            <p>In Arbeit</p>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">📋</div>
+                            <h3><?php echo $stats['planned_items'] ?? 0; ?></h3>
+                            <p>Geplant</p>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">🔥</div>
+                            <h3><?php echo $stats['high_priority_items'] ?? 0; ?></h3>
+                            <p>Hohe Priorität</p>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">📈</div>
+                            <h3><?php echo $stats['completion_percentage'] ?? 0; ?>%</h3>
+                            <p>Fortschritt</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <?php else: ?>
+                <div style="text-align: center; padding: 3rem; color: var(--gray);">
+                    <p>🗺️ Noch keine Roadmap-Einträge erstellt.</p>
+                    <?php if (hasPermission('settings.update')): ?>
+                    <button onclick="openModal('addRoadmapModal')" class="btn btn-primary" style="margin-top: 1rem;">
+                        ➕ Ersten Eintrag hinzufügen
+                    </button>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Server Settings Section -->
         <?php if (hasPermission('settings.read') && $page === 'settings'): ?>
@@ -2288,6 +2658,42 @@ if ($currentUser['role'] === 'super_admin') {
                     document.body.removeChild(notification);
                 }, 300);
             }, duration);
+        }
+
+        function filterRoadmapItems() {
+            const statusFilter = document.getElementById('roadmapStatusFilter').value;
+            const rows = document.querySelectorAll('#roadmapTable tbody tr');
+            
+            rows.forEach(row => {
+                const status = row.getAttribute('data-status');
+                
+                if (!statusFilter || status === statusFilter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        function editRoadmapItem(item) {
+            document.getElementById('edit_roadmap_id').value = item.id;
+            document.getElementById('edit_roadmap_title').value = item.title;
+            document.getElementById('edit_roadmap_description').value = item.description;
+            document.getElementById('edit_roadmap_status').value = item.status;
+            document.getElementById('edit_roadmap_priority').value = item.priority;
+            document.getElementById('edit_roadmap_estimated_date').value = item.estimated_date || '';
+            document.getElementById('edit_roadmap_active').checked = item.is_active == 1;
+            openModal('editRoadmapModal');
+        }
+
+        function deleteRoadmapItem(id) {
+            showConfirmDialog(
+                '🗑️ Roadmap-Eintrag löschen',
+                'Sind Sie sicher, dass Sie diesen Roadmap-Eintrag löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.',
+                () => {
+                    submitForm('delete_roadmap_item', { roadmap_id: id });
+                }
+            );
         }
         
         // Add slide out animation

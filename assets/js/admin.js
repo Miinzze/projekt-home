@@ -808,6 +808,614 @@ function setupKeyboardShortcuts() {
 }
 
 /**
+ * ERWEITERTE ADMIN.JS FUNKTIONEN
+ * Fügen Sie diese Funktionen zu Ihrer admin.js hinzu
+ */
+
+// ========================================
+// TERMIN-NACHRICHT FUNKTIONEN
+// ========================================
+
+/**
+ * Termin-Modal öffnen für eine Bewerbung
+ */
+function sendAppointmentMessage(applicationId) {
+    // Bewerbungsdaten laden
+    fetch(`ajax/get-application-details.php?id=${applicationId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const application = data.application;
+                
+                // Modal-Felder füllen
+                document.getElementById('appointment_application_id').value = applicationId;
+                
+                // Benutzer-Info anzeigen
+                const userInfo = document.getElementById('appointment_user_info');
+                userInfo.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        ${application.discord_avatar ? 
+                            `<img src="${application.discord_avatar}" style="width: 32px; height: 32px; border-radius: 50%;" alt="Avatar">` :
+                            `<div style="width: 32px; height: 32px; border-radius: 50%; background: #5865f2; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.8rem;">${application.discord_username.substring(0, 2).toUpperCase()}</div>`
+                        }
+                        <div>
+                            <strong>${application.discord_username}</strong>
+                            <br><small style="color: var(--gray);">ID: ${application.discord_id}</small>
+                        </div>
+                    </div>
+                `;
+                
+                // Standard-Datum und Zeit setzen (morgen um 20:00)
+                const tomorrow = new Date();
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                document.getElementById('appointment_date').value = tomorrow.toISOString().split('T')[0];
+                document.getElementById('appointment_time').value = '20:00';
+                
+                // Discord Bot Status prüfen
+                checkDiscordBotStatus();
+                
+                // Modal öffnen
+                openModal('appointmentModal');
+                
+            } else {
+                alert('Fehler beim Laden der Bewerbungsdaten: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading application details:', error);
+            alert('Fehler beim Laden der Bewerbungsdaten');
+        });
+}
+
+/**
+ * Termin-Formular absenden
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    const appointmentForm = document.getElementById('appointmentForm');
+    if (appointmentForm) {
+        appointmentForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('sendAppointmentBtn');
+            const originalText = submitBtn.textContent;
+            
+            // Button in Loading-Zustand setzen
+            submitBtn.classList.add('loading');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Wird gesendet...';
+            
+            // Form-Daten sammeln
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            // AJAX-Request senden
+            fetch('ajax/send-appointment.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    showNotification('✅ Termin-Nachricht erfolgreich gesendet!', 'success');
+                    closeModal('appointmentModal');
+                    
+                    // Seite neu laden um aktualisierte Bewerbung zu zeigen
+                    setTimeout(() => {
+                        location.reload();
+                    }, 1000);
+                    
+                } else {
+                    alert('Fehler beim Senden der Nachricht:\n' + result.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error sending appointment:', error);
+                alert('Fehler beim Senden der Nachricht');
+            })
+            .finally(() => {
+                // Button zurücksetzen
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            });
+        });
+    }
+});
+
+/**
+ * Notification System
+ */
+function showNotification(message, type = 'info', duration = 5000) {
+    // Prüfen ob bereits ein Notification-Container existiert
+    let container = document.getElementById('notification-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'notification-container';
+        container.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            max-width: 400px;
+        `;
+        document.body.appendChild(container);
+    }
+    
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.style.cssText = `
+        background: ${type === 'success' ? 'linear-gradient(135deg, #10b981, #059669)' : 
+                     type === 'error' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 
+                     type === 'warning' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 
+                     'linear-gradient(135deg, #3b82f6, #2563eb)'};
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        animation: slideInRight 0.3s ease-out;
+        cursor: pointer;
+        font-weight: 500;
+        line-height: 1.4;
+        position: relative;
+        overflow: hidden;
+    `;
+    
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span>${message}</span>
+            <button onclick="this.parentElement.parentElement.remove()" 
+                    style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; margin-left: auto;">×</button>
+        </div>
+    `;
+    
+    // Progress bar für Auto-Close
+    if (duration > 0) {
+        const progressBar = document.createElement('div');
+        progressBar.style.cssText = `
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.3);
+            width: 100%;
+            animation: progressBar ${duration}ms linear;
+        `;
+        notification.appendChild(progressBar);
+    }
+    
+    container.appendChild(notification);
+    
+    // Auto-remove nach duration
+    if (duration > 0) {
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.style.animation = 'slideOutRight 0.3s ease-in';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.remove();
+                    }
+                }, 300);
+            }
+        }, duration);
+    }
+    
+    // Click to remove
+    notification.addEventListener('click', () => {
+        notification.style.animation = 'slideOutRight 0.3s ease-in';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 300);
+    });
+}
+
+// CSS Animations für Notifications hinzufügen
+if (!document.getElementById('notification-styles')) {
+    const style = document.createElement('style');
+    style.id = 'notification-styles';
+    style.textContent = `
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes slideOutRight {
+            from {
+                opacity: 1;
+                transform: translateX(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+        }
+        
+        @keyframes progressBar {
+            from {
+                width: 100%;
+            }
+            to {
+                width: 0%;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// ========================================
+// ERWEITERTE WHITELIST-FUNKTIONEN
+// ========================================
+
+/**
+ * Erweiterte Bewerbungsdetails anzeigen
+ */
+function viewApplicationDetails(id) {
+    // Neues Fenster öffnen
+    const detailWindow = window.open(
+        `view-application.php?id=${id}`, 
+        '_blank', 
+        'width=900,height=700,scrollbars=yes,resizable=yes'
+    );
+    
+    // Callback für Termin-Senden aus dem Detail-Fenster
+    detailWindow.sendAppointmentMessage = function(applicationId) {
+        // Modal im Hauptfenster öffnen
+        sendAppointmentMessage(applicationId);
+        detailWindow.close();
+    };
+}
+
+/**
+ * Bulk-Aktionen für Bewerbungen
+ */
+function initBulkActions() {
+    // Checkbox für "Alle auswählen"
+    const selectAllCheckbox = document.getElementById('selectAllApplications');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.application-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updateBulkActionButtons();
+        });
+    }
+    
+    // Individual checkboxes
+    document.querySelectorAll('.application-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateBulkActionButtons);
+    });
+}
+
+function updateBulkActionButtons() {
+    const selectedCount = document.querySelectorAll('.application-checkbox:checked').length;
+    const bulkActions = document.getElementById('bulkActions');
+    
+    if (bulkActions) {
+        if (selectedCount > 0) {
+            bulkActions.style.display = 'flex';
+            bulkActions.querySelector('.selected-count').textContent = selectedCount;
+        } else {
+            bulkActions.style.display = 'none';
+        }
+    }
+}
+
+function bulkApproveApplications() {
+    const selectedIds = Array.from(document.querySelectorAll('.application-checkbox:checked'))
+                            .map(cb => cb.value);
+    
+    if (selectedIds.length === 0) {
+        alert('Keine Bewerbungen ausgewählt');
+        return;
+    }
+    
+    showConfirmDialog(
+        `✅ ${selectedIds.length} Bewerbungen genehmigen`,
+        `Sind Sie sicher, dass Sie ${selectedIds.length} Bewerbungen genehmigen möchten?`,
+        () => {
+            bulkUpdateApplications(selectedIds, 'approved', 'Bulk-Genehmigung durch Admin');
+        }
+    );
+}
+
+function bulkRejectApplications() {
+    const selectedIds = Array.from(document.querySelectorAll('.application-checkbox:checked'))
+                            .map(cb => cb.value);
+    
+    if (selectedIds.length === 0) {
+        alert('Keine Bewerbungen ausgewählt');
+        return;
+    }
+    
+    const reason = prompt(`Grund für die Ablehnung von ${selectedIds.length} Bewerbungen:`);
+    if (reason !== null) {
+        bulkUpdateApplications(selectedIds, 'rejected', reason || 'Bulk-Ablehnung durch Admin');
+    }
+}
+
+function bulkUpdateApplications(applicationIds, status, notes) {
+    const promises = applicationIds.map(id => 
+        fetch('ajax/update-application-status.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                application_id: id,
+                status: status,
+                notes: notes
+            })
+        }).then(response => response.json())
+    );
+    
+    Promise.all(promises)
+        .then(results => {
+            const successCount = results.filter(r => r.success).length;
+            const errorCount = results.length - successCount;
+            
+            if (successCount > 0) {
+                showNotification(`✅ ${successCount} Bewerbungen erfolgreich aktualisiert`, 'success');
+            }
+            
+            if (errorCount > 0) {
+                showNotification(`❌ ${errorCount} Bewerbungen konnten nicht aktualisiert werden`, 'error');
+            }
+            
+            // Seite neu laden
+            setTimeout(() => location.reload(), 1500);
+        })
+        .catch(error => {
+            console.error('Bulk update error:', error);
+            showNotification('❌ Fehler bei der Bulk-Aktualisierung', 'error');
+        });
+}
+
+// ========================================
+// DASHBOARD STATISTIKEN LIVE-UPDATE
+// ========================================
+
+/**
+ * Dashboard-Statistiken automatisch aktualisieren
+ */
+function initDashboardAutoRefresh() {
+    if (window.location.search.includes('page=overview') || !window.location.search.includes('page=')) {
+        // Alle 2 Minuten aktualisieren
+        setInterval(refreshDashboardStats, 120000);
+    }
+}
+
+function refreshDashboardStats() {
+    fetch('ajax/get-dashboard-stats.php')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Statistiken aktualisieren
+                Object.keys(data.stats).forEach(key => {
+                    const element = document.querySelector(`[data-stat="${key}"]`);
+                    if (element) {
+                        element.textContent = data.stats[key];
+                    }
+                });
+                
+                // Letzte Aktualisierung anzeigen
+                const lastUpdate = document.getElementById('last-stats-update');
+                if (lastUpdate) {
+                    lastUpdate.textContent = 'Zuletzt aktualisiert: ' + new Date().toLocaleTimeString();
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Stats refresh error:', error);
+        });
+}
+
+// ========================================
+// EXPORT-FUNKTIONEN
+// ========================================
+
+/**
+ * Bewerbungen als CSV exportieren
+ */
+function exportApplicationsCSV() {
+    const statusFilter = document.getElementById('statusFilter')?.value || '';
+    const scoreFilter = document.getElementById('scoreFilter')?.value || '';
+    
+    const params = new URLSearchParams({
+        export: 'csv',
+        status: statusFilter,
+        score: scoreFilter
+    });
+    
+    window.open(`ajax/export-applications.php?${params.toString()}`, '_blank');
+}
+
+/**
+ * Roadmap als JSON exportieren
+ */
+function exportRoadmapJSON() {
+    fetch('ajax/export-roadmap.php?format=json')
+        .then(response => response.blob())
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `roadmap-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+            console.error('Export error:', error);
+            showNotification('❌ Fehler beim Export', 'error');
+        });
+}
+
+// ========================================
+// KEYBOARD SHORTCUTS
+// ========================================
+
+document.addEventListener('keydown', function(e) {
+    // Globale Shortcuts
+    if (e.ctrlKey || e.metaKey) {
+        switch (e.key.toLowerCase()) {
+            case 's':
+                e.preventDefault();
+                // Aktuelles Formular speichern
+                const activeForm = document.querySelector('.modal.active form, form:focus-within');
+                if (activeForm) {
+                    activeForm.dispatchEvent(new Event('submit'));
+                }
+                break;
+                
+            case 'n':
+                if (e.altKey) {
+                    e.preventDefault();
+                    // Je nach aktueller Seite entsprechendes Modal öffnen
+                    if (window.location.search.includes('page=news')) {
+                        openModal('addNewsModal');
+                    } else if (window.location.search.includes('page=rules')) {
+                        openModal('addRuleModal');
+                    } else if (window.location.search.includes('page=roadmap')) {
+                        openModal('addRoadmapModal');
+                    } else if (window.location.search.includes('page=whitelist_questions')) {
+                        openModal('addQuestionModal');
+                    }
+                }
+                break;
+                
+            case 'f':
+                if (e.altKey) {
+                    e.preventDefault();
+                    // Focus auf ersten Filter
+                    const firstFilter = document.querySelector('select[id*="Filter"], input[id*="Filter"]');
+                    if (firstFilter) {
+                        firstFilter.focus();
+                    }
+                }
+                break;
+                
+            case 'r':
+                if (e.altKey) {
+                    e.preventDefault();
+                    // Statistiken aktualisieren
+                    refreshDashboardStats();
+                    showNotification('🔄 Statistiken aktualisiert', 'info', 2000);
+                }
+                break;
+        }
+    }
+    
+    // Escape für Modal schließen
+    if (e.key === 'Escape') {
+        const activeModal = document.querySelector('.modal.active');
+        if (activeModal) {
+            activeModal.classList.remove('active');
+        }
+    }
+});
+
+// ========================================
+// INITIALIZATION
+// ========================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Alle Initialisierungsfunktionen aufrufen
+    initBulkActions();
+    initDashboardAutoRefresh();
+    
+    // Tooltips initialisieren
+    initTooltips();
+    
+    // Auto-save für Formulare
+    initAutoSave();
+    
+    console.log('🚀 Admin Dashboard JavaScript geladen');
+});
+
+/**
+ * Tooltips für Buttons und Elemente
+ */
+function initTooltips() {
+    document.querySelectorAll('[data-tooltip]').forEach(element => {
+        element.addEventListener('mouseenter', function() {
+            this.setAttribute('title', this.getAttribute('data-tooltip'));
+        });
+    });
+}
+
+/**
+ * Auto-Save für Formulare
+ */
+function initAutoSave() {
+    document.querySelectorAll('form:not([data-no-autosave])').forEach(form => {
+        const formId = form.id || 'form_' + Math.random().toString(36).substr(2, 9);
+        
+        // Gespeicherte Daten laden
+        const savedData = localStorage.getItem('admin_form_backup_' + formId);
+        if (savedData) {
+            try {
+                const data = JSON.parse(savedData);
+                Object.keys(data).forEach(name => {
+                    const field = form.querySelector(`[name="${name}"]`);
+                    if (field && field.type !== 'password' && field.name !== 'csrf_token') {
+                        if (field.type === 'checkbox') {
+                            field.checked = data[name];
+                        } else {
+                            field.value = data[name];
+                        }
+                    }
+                });
+            } catch (e) {
+                console.log('Could not restore form data');
+            }
+        }
+        
+        // Daten bei Eingabe speichern
+        form.addEventListener('input', debounce(function() {
+            const formData = new FormData(this);
+            const data = {};
+            for (let [key, value] of formData.entries()) {
+                if (key !== 'csrf_token' && key !== 'password') {
+                    data[key] = value;
+                }
+            }
+            localStorage.setItem('admin_form_backup_' + formId, JSON.stringify(data));
+        }, 1000));
+        
+        // Backup bei erfolgreichem Submit löschen
+        form.addEventListener('submit', function() {
+            localStorage.removeItem('admin_form_backup_' + formId);
+        });
+    });
+}
+
+/**
+ * Debounce Utility Function
+ */
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+/**
  * Initialize all features
  */
 document.addEventListener('DOMContentLoaded', function() {
