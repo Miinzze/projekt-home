@@ -1,4 +1,4 @@
-<!-- Erweiterte Whitelist Management Modals mit Scoring System -->
+<!-- Erweiterte Whitelist Management Modals mit Termin-System -->
 
 <!-- Add Question Modal -->
 <div id="addQuestionModal" class="modal">
@@ -212,6 +212,95 @@
     </div>
 </div>
 
+<!-- NEUES MODAL: Termin-Nachricht senden -->
+<div id="appointmentModal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+        <button class="close-btn" onclick="closeModal('appointmentModal')" aria-label="Modal schließen">&times;</button>
+        <div class="modal-header">
+            <h3 class="modal-title">📧 Termin-Nachricht senden</h3>
+            <p style="color: var(--gray); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                Sende eine Discord-Direktnachricht mit Termindetails an den Bewerber
+            </p>
+        </div>
+        
+        <!-- Benutzer-Info wird hier eingefügt -->
+        <div id="appointment_user_info">
+            <!-- Wird per JavaScript gefüllt -->
+        </div>
+        
+        <form id="appointmentForm">
+            <input type="hidden" id="appointment_application_id" name="application_id">
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="appointment_date">📅 Termin-Datum *</label>
+                    <input type="date" 
+                           id="appointment_date" 
+                           name="appointment_date" 
+                           class="form-control" 
+                           required
+                           min="<?php echo date('Y-m-d'); ?>">
+                    <small style="color: var(--gray); font-size: 0.8rem;">
+                        Datum für das Whitelist-Gespräch
+                    </small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="appointment_time">🕐 Uhrzeit *</label>
+                    <input type="time" 
+                           id="appointment_time" 
+                           name="appointment_time" 
+                           class="form-control" 
+                           required
+                           value="20:00">
+                    <small style="color: var(--gray); font-size: 0.8rem;">
+                        Uhrzeit für das Whitelist-Gespräch
+                    </small>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="custom_message">✉️ Nachricht</label>
+                <textarea id="custom_message" 
+                          name="custom_message" 
+                          class="form-control" 
+                          rows="8" 
+                          placeholder="Angepasste Nachricht (optional)..."
+                          maxlength="2000"></textarea>
+                <small style="color: var(--gray); font-size: 0.8rem;">
+                    Leer lassen für Standard-Nachricht. Platzhalter: {appointment_date}, {appointment_time}, {username}, {server_name}
+                </small>
+            </div>
+            
+            <!-- Discord Bot Status -->
+            <div id="discord_bot_status" style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 1rem; margin: 1rem 0;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <span style="font-size: 1.2rem;">🤖</span>
+                    <strong style="color: var(--primary);">Discord Bot Status</strong>
+                </div>
+                <div id="bot_status_content">
+                    <div style="color: var(--gray); font-size: 0.9rem;">
+                        Status wird geprüft...
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+                <button type="button" 
+                        onclick="closeModal('appointmentModal')" 
+                        class="btn btn-secondary">
+                    ❌ Abbrechen
+                </button>
+                <button type="submit" 
+                        id="sendAppointmentBtn" 
+                        class="btn btn-primary">
+                    📧 Termin senden
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Application Details Modal -->
 <div id="applicationDetailsModal" class="modal">
     <div class="modal-content" style="max-width: 900px;">
@@ -283,6 +372,87 @@
     background-size: 1rem;
     padding-right: 2.5rem;
     cursor: pointer;
+}
+
+/* Termin-Modal spezifische Styles */
+.appointment-user-info {
+    background: linear-gradient(135deg, rgba(88, 101, 242, 0.2), rgba(88, 101, 242, 0.1));
+    border: 1px solid rgba(88, 101, 242, 0.3);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.appointment-user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 2px solid #5865f2;
+}
+
+.appointment-preview {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.discord-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.discord-status.online {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: var(--success);
+}
+
+.discord-status.offline {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--danger);
+}
+
+.discord-status.warning {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: var(--warning);
+}
+
+/* Loading Button Style */
+.btn.loading {
+    position: relative;
+    pointer-events: none;
+}
+
+.btn.loading::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top: 2px solid rgba(255,255,255,0.8);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 /* Scoring Specific Styles */
@@ -465,18 +635,85 @@
     .score-number {
         font-size: 1.5rem;
     }
+    
+    .appointment-user-info {
+        padding: 0.75rem;
+    }
+    
+    .appointment-user-avatar {
+        width: 40px;
+        height: 40px;
+    }
+}
+
+/* Dark theme enhancements */
+.modal {
+    backdrop-filter: blur(10px);
+}
+
+.modal-content {
+    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 107, 53, 0.2);
+}
+
+.form-control:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+    outline: none;
+}
+
+.form-control[type="date"]::-webkit-calendar-picker-indicator,
+.form-control[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+/* Notification enhancements */
+.notification {
+    position: relative;
+    overflow: hidden;
+}
+
+.notification::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Custom scrollbar für Modal */
+.modal-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 107, 53, 0.5);
+    border-radius: 4px;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 107, 53, 0.7);
 }
 </style>
 
 <script>
-// Erweiterte Whitelist-Funktionen mit Scoring
+// Erweiterte Whitelist-Funktionen mit Termin-System
 document.addEventListener('DOMContentLoaded', function() {
     setupEnhancedWhitelistModals();
+    setupAppointmentSystem();
 });
 
 function setupEnhancedWhitelistModals() {
     // Setup character counters für alle relevanten Felder
-    const textareas = document.querySelectorAll('#question, #edit_question, #correct_answer, #edit_correct_answer');
+    const textareas = document.querySelectorAll('#question, #edit_question, #correct_answer, #edit_correct_answer, #custom_message');
     textareas.forEach(textarea => {
         setupCharacterCounter(textarea);
     });
@@ -494,6 +731,30 @@ function setupEnhancedWhitelistModals() {
     // Setup correct answer help updates
     updateCorrectAnswerHelp('');
     updateCorrectAnswerHelp('edit');
+}
+
+function setupAppointmentSystem() {
+    console.log('📧 Setup Termin-System...');
+    
+    // Termin-Modal Form Handler
+    const appointmentForm = document.getElementById('appointmentForm');
+    if (appointmentForm) {
+        appointmentForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            handleAppointmentSubmission(this);
+        });
+        console.log('✅ Appointment Form Handler registriert');
+    } else {
+        console.warn('⚠️ Appointment Form nicht gefunden');
+    }
+    
+    // Standard-Datum setzen (morgen)
+    const appointmentDate = document.getElementById('appointment_date');
+    if (appointmentDate && !appointmentDate.value) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        appointmentDate.value = tomorrow.toISOString().split('T')[0];
+    }
 }
 
 function setupCharacterCounter(textarea) {
@@ -559,7 +820,7 @@ function toggleQuestionType(prefix = '') {
             if (optionsInputs.length >= 2) {
                 optionsInputs[0].required = true;
                 optionsInputs[1].required = true;
-                optionsInputs[2].required = false; // Third option is optional
+                if (optionsInputs[2]) optionsInputs[2].required = false; // Third option is optional
             }
         } else {
             optionsContainer.style.display = 'none';
@@ -578,271 +839,135 @@ function toggleQuestionType(prefix = '') {
     updateCorrectAnswerHelp(prefix);
 }
 
-// Erweiterte editQuestion Funktion mit correct_answer Support
-function editQuestion(question) {
-    document.getElementById('edit_question_id').value = question.id;
-    document.getElementById('edit_question').value = question.question;
-    document.getElementById('edit_question_type').value = question.question_type;
-    document.getElementById('edit_question_order').value = question.question_order;
-    document.getElementById('edit_question_required').checked = question.is_required == 1;
-    document.getElementById('edit_question_active').checked = question.is_active == 1;
+/**
+ * NEUE TERMIN-FUNKTIONEN
+ */
+
+// Termin-Formular Submission Handler
+function handleAppointmentSubmission(form) {
+    const submitBtn = document.getElementById('sendAppointmentBtn');
+    const originalText = submitBtn ? submitBtn.textContent : '';
     
-    // Set correct answer
-    if (document.getElementById('edit_correct_answer')) {
-        document.getElementById('edit_correct_answer').value = question.correct_answer || '';
+    console.log('📤 Sende Termin-Formular...');
+    
+    // Button in Loading-Zustand setzen
+    if (submitBtn) {
+        submitBtn.classList.add('loading');
+        submitBtn.disabled = true;
+        submitBtn.textContent = '📤 Wird gesendet...';
     }
     
-    // Handle options for multiple choice
-    const optionsContainer = document.getElementById('edit_options_container');
-    const optionsInputs = optionsContainer.querySelectorAll('input[name="options[]"]');
+    // Form-Daten sammeln
+    const formData = new FormData(form);
+    const data = {};
     
-    // Clear existing options
-    optionsInputs.forEach(input => input.value = '');
+    // FormData zu Object konvertieren
+    for (let [key, value] of formData.entries()) {
+        data[key] = value;
+    }
     
-    if (question.question_type === 'multiple_choice' && question.options) {
-        try {
-            const options = JSON.parse(question.options);
-            options.forEach((option, index) => {
-                if (optionsInputs[index]) {
-                    optionsInputs[index].value = option;
-                }
-            });
-        } catch (e) {
-            console.error('Error parsing question options:', e);
+    console.log('📤 Sende Daten:', data);
+    
+    // AJAX-Request senden
+    fetch('ajax/send-appointment.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        console.log('📥 Response Status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-    }
-    
-    toggleQuestionType('edit');
-    openModal('editQuestionModal');
+        
+        return response.json();
+    })
+    .then(result => {
+        console.log('📥 Response Data:', result);
+        
+        if (result.success) {
+            showNotification('✅ Termin-Nachricht erfolgreich gesendet!', 'success');
+            closeModal('appointmentModal');
+            
+            // Formular zurücksetzen
+            form.reset();
+            
+            // Seite nach kurzer Verzögerung neu laden
+            setTimeout(() => {
+                location.reload();
+            }, 1500);
+        } else {
+            throw new Error(result.error || 'Unbekannter Fehler beim Senden der Nachricht');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Fehler beim Senden der Nachricht:', error);
+        showNotification(`❌ Fehler beim Senden der Nachricht: ${error.message}`, 'error');
+    })
+    .finally(() => {
+        // Button zurücksetzen
+        if (submitBtn) {
+            submitBtn.classList.remove('loading');
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText || '📧 Termin senden';
+        }
+    });
 }
 
-// Neue Funktion für Application Details
-function viewApplicationDetails(applicationId) {
-    openModal('applicationDetailsModal');
+// Discord Bot Status prüfen
+function checkDiscordBotStatus() {
+    const statusContent = document.getElementById('bot_status_content');
+    if (!statusContent) return;
     
-    // Loading state
-    document.getElementById('applicationDetailsContent').innerHTML = `
-        <div style="text-align: center; padding: 2rem;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">⏳</div>
-            <p>Lade Bewerbungsdetails...</p>
-        </div>
-    `;
+    statusContent.innerHTML = '<div style="color: var(--gray);">🔄 Status wird geprüft...</div>';
     
-    // Fetch application details
-    fetch(`get-application-details.php?id=${applicationId}`)
+    fetch('ajax/check-discord-bot.php')
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                displayApplicationDetails(data.application, data.answers);
+                if (data.bot_enabled && data.bot_configured) {
+                    statusContent.innerHTML = `
+                        <div class="discord-status online">
+                            <span>✅</span>
+                            <span>Bot ist bereit - Nachrichten können gesendet werden</span>
+                        </div>
+                    `;
+                } else if (!data.bot_enabled) {
+                    statusContent.innerHTML = `
+                        <div class="discord-status offline">
+                            <span>❌</span>
+                            <span>Discord Bot ist deaktiviert</span>
+                        </div>
+                    `;
+                } else {
+                    statusContent.innerHTML = `
+                        <div class="discord-status warning">
+                            <span>⚠️</span>
+                            <span>Bot-Konfiguration unvollständig</span>
+                        </div>
+                    `;
+                }
             } else {
-                document.getElementById('applicationDetailsContent').innerHTML = `
-                    <div style="text-align: center; padding: 2rem; color: var(--danger);">
-                        <div style="font-size: 3rem; margin-bottom: 1rem;">❌</div>
-                        <p>Fehler beim Laden der Details: ${data.error}</p>
+                statusContent.innerHTML = `
+                    <div class="discord-status offline">
+                        <span>❌</span>
+                        <span>Status konnte nicht geprüft werden</span>
                     </div>
                 `;
             }
         })
         .catch(error => {
-            console.error('Error fetching application details:', error);
-            document.getElementById('applicationDetailsContent').innerHTML = `
-                <div style="text-align: center; padding: 2rem; color: var(--danger);">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">❌</div>
-                    <p>Fehler beim Laden der Details.</p>
+            console.error('Discord bot status check failed:', error);
+            statusContent.innerHTML = `
+                <div class="discord-status offline">
+                    <span>❌</span>
+                    <span>Verbindungsfehler</span>
                 </div>
             `;
         });
-}
-
-function displayApplicationDetails(application, answers) {
-    const scoreClass = getScoreClass(application.score_percentage);
-    const scoreColor = getScoreColor(application.score_percentage);
-    
-    let html = `
-        <div class="application-header">
-            <div>
-                ${application.discord_avatar ? 
-                    `<img src="${application.discord_avatar}" class="application-avatar" alt="Avatar">` :
-                    `<div class="application-avatar" style="background: #5865f2; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 1.2rem;">
-                        ${application.discord_username.substring(0, 2).toUpperCase()}
-                    </div>`
-                }
-            </div>
-            <div class="application-info">
-                <h4>${application.discord_username}</h4>
-                <div class="application-meta">
-                    Discord ID: ${application.discord_id}<br>
-                    Eingereicht: ${new Date(application.created_at).toLocaleString('de-DE')}<br>
-                    Status: ${getStatusLabel(application.status)}
-                </div>
-            </div>
-            <div style="margin-left: auto;">
-                <div class="score-display ${scoreClass}">
-                    <div class="score-number ${scoreClass}">${application.score_percentage}%</div>
-                    <div style="font-size: 0.9rem; margin-top: 0.5rem;">
-                        ${application.correct_answers}/${application.total_questions} richtig
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="answers-grid">
-    `;
-    
-    answers.forEach((answer, index) => {
-        const isCorrect = answer.is_correct == 1;
-        const autoEvaluated = answer.auto_evaluated == 1;
-        const questionClass = isCorrect ? 'correct' : (autoEvaluated ? 'incorrect' : 'manual');
-        
-        html += `
-            <div class="question-scoring ${questionClass}">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-                    <div style="flex: 1;">
-                        <h5 style="color: var(--primary); margin-bottom: 0.5rem;">
-                            Frage ${index + 1}: ${answer.question}
-                        </h5>
-                        <div style="color: var(--text); margin-bottom: 0.5rem;">
-                            <strong>Antwort:</strong> ${answer.answer}
-                        </div>
-                        ${answer.correct_answer ? `
-                            <div class="correct-answer-preview">
-                                <strong>Erwartete Antwort:</strong> ${answer.correct_answer}
-                            </div>
-                        ` : ''}
-                    </div>
-                    <div class="answer-evaluation">
-                        ${isCorrect ? 
-                            '<span style="color: var(--success); font-weight: bold;">✅ Richtig</span>' :
-                            (autoEvaluated ? 
-                                '<span style="color: var(--danger); font-weight: bold;">❌ Falsch</span>' :
-                                '<span style="color: var(--warning); font-weight: bold;">❓ Nicht bewertet</span>'
-                            )
-                        }
-                        ${autoEvaluated ? 
-                            '<span style="color: var(--gray); font-size: 0.8rem;">(Auto)</span>' :
-                            '<span style="color: var(--gray); font-size: 0.8rem;">(Manuell)</span>'
-                        }
-                    </div>
-                </div>
-            </div>
-        `;
-    });
-    
-    html += `
-        </div>
-        
-        <div style="margin-top: 2rem; text-align: center;">
-            <button onclick="openManualScoring(${application.id})" class="btn btn-primary">
-                🎯 Manuelle Bewertung
-            </button>
-            <button onclick="updateApplicationStatus(${application.id})" class="btn btn-secondary">
-                📝 Status ändern
-            </button>
-        </div>
-    `;
-    
-    document.getElementById('applicationDetailsContent').innerHTML = html;
-}
-
-function getScoreClass(percentage) {
-    if (percentage >= 70) return '';
-    if (percentage >= 50) return 'medium';
-    return 'low';
-}
-
-function getScoreColor(percentage) {
-    if (percentage >= 70) return 'var(--success)';
-    if (percentage >= 50) return 'var(--warning)';
-    return 'var(--danger)';
-}
-
-function getStatusLabel(status) {
-    const labels = {
-        'pending': '🟡 Noch offen',
-        'approved': '✅ Genehmigt',
-        'rejected': '❌ Abgelehnt',
-        'closed': '⚫ Geschlossen'
-    };
-    return labels[status] || status;
-}
-
-function openManualScoring(applicationId) {
-    closeModal('applicationDetailsModal');
-    openModal('manualScoringModal');
-    
-    document.getElementById('scoring_application_id').value = applicationId;
-    
-    // Load questions for manual scoring
-    fetch(`get-scoring-questions.php?app_id=${applicationId}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                displayScoringQuestions(data.questions);
-            }
-        })
-        .catch(error => {
-            console.error('Error loading scoring questions:', error);
-        });
-}
-
-function displayScoringQuestions(questions) {
-    let html = '';
-    
-    questions.forEach((question, index) => {
-        const isCorrect = question.is_correct == 1;
-        
-        html += `
-            <div class="question-scoring ${isCorrect ? 'correct' : 'incorrect'}" style="margin-bottom: 1rem;">
-                <h5 style="color: var(--primary); margin-bottom: 0.5rem;">
-                    Frage ${index + 1}: ${question.question}
-                </h5>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong>Antwort:</strong> ${question.answer}
-                </div>
-                ${question.correct_answer ? `
-                    <div class="correct-answer-preview">
-                        <strong>Erwartete Antwort:</strong> ${question.correct_answer}
-                    </div>
-                ` : ''}
-                <div class="evaluation-toggle" style="margin-top: 1rem;">
-                    <button type="button" 
-                            class="evaluation-btn ${isCorrect ? 'correct' : ''}"
-                            onclick="toggleAnswerEvaluation(${question.answer_id}, true, this)">
-                        ✅ Richtig
-                    </button>
-                    <button type="button" 
-                            class="evaluation-btn ${!isCorrect ? 'incorrect' : ''}"
-                            onclick="toggleAnswerEvaluation(${question.answer_id}, false, this)">
-                        ❌ Falsch
-                    </button>
-                </div>
-                <input type="hidden" name="answer_evaluations[${question.answer_id}]" value="${isCorrect ? '1' : '0'}">
-            </div>
-        `;
-    });
-    
-    document.getElementById('scoringQuestionsContainer').innerHTML = html;
-}
-
-function toggleAnswerEvaluation(answerId, isCorrect, buttonElement) {
-    const container = buttonElement.closest('.question-scoring');
-    const hiddenInput = container.querySelector(`input[name="answer_evaluations[${answerId}]"]`);
-    const buttons = container.querySelectorAll('.evaluation-btn');
-    
-    // Remove active classes
-    buttons.forEach(btn => {
-        btn.classList.remove('correct', 'incorrect');
-    });
-    
-    // Add active class to clicked button
-    buttonElement.classList.add(isCorrect ? 'correct' : 'incorrect');
-    
-    // Update hidden input
-    hiddenInput.value = isCorrect ? '1' : '0';
-    
-    // Update container class
-    container.classList.remove('correct', 'incorrect');
-    container.classList.add(isCorrect ? 'correct' : 'incorrect');
 }
 
 // Enhanced form validation für question forms mit correct_answer
@@ -900,6 +1025,24 @@ document.addEventListener('keydown', function(e) {
             const detailsBtn = firstPendingRow.querySelector('button[onclick*="viewApplication"]');
             if (detailsBtn) {
                 detailsBtn.click();
+            }
+        }
+    }
+    
+    // Ctrl/Cmd + Alt + T: Quick appointment for first pending
+    if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 't') {
+        e.preventDefault();
+        const firstPendingRow = document.querySelector('#applicationsTable tbody tr[data-status="pending"]');
+        if (firstPendingRow) {
+            // Extract application ID from the row
+            const detailsBtn = firstPendingRow.querySelector('button[onclick*="viewApplication"]');
+            if (detailsBtn) {
+                const onclickAttr = detailsBtn.getAttribute('onclick');
+                const matches = onclickAttr.match(/viewApplication\((\d+)\)/);
+                if (matches) {
+                    const appId = matches[1];
+                    sendAppointment(appId);
+                }
             }
         }
     }

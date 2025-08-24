@@ -37,10 +37,13 @@ try {
     $applicationId = (int)$data['application_id'];
     $appointmentDate = $data['appointment_date'] ?? null;
     $appointmentTime = $data['appointment_time'] ?? null;
-    $customMessage = $data['custom_message'] ?? '';
     
     if ($applicationId <= 0) {
         throw new Exception('Invalid application ID');
+    }
+    
+    if (empty($appointmentDate) || empty($appointmentTime)) {
+        throw new Exception('Datum und Uhrzeit sind erforderlich');
     }
     
     // Bewerbung laden
@@ -62,22 +65,29 @@ try {
         throw new Exception('Discord Bot ist nicht konfiguriert oder deaktiviert');
     }
     
-    // Termin-Datum/Zeit verarbeiten
-    $appointmentDateTime = null;
-    if ($appointmentDate && $appointmentTime) {
-        $appointmentDateTime = $appointmentDate . ' ' . $appointmentTime;
-        if (!strtotime($appointmentDateTime)) {
-            throw new Exception('Ungültiges Datum/Zeit Format');
-        }
+    // Termin-Datum/Zeit kombinieren und validieren
+    $appointmentDateTime = $appointmentDate . ' ' . $appointmentTime;
+    if (!strtotime($appointmentDateTime)) {
+        throw new Exception('Ungültiges Datum/Zeit Format');
     }
     
-    // Nachricht erstellen
-    $messageTemplate = $customMessage ?: getServerSetting(
+    // Überprüfen ob das Datum in der Vergangenheit liegt
+    if (strtotime($appointmentDateTime) < time()) {
+        throw new Exception('Der Termin kann nicht in der Vergangenheit liegen');
+    }
+    
+    // Termin-Nachricht aus den Einstellungen laden
+    $messageTemplate = getServerSetting(
         'appointment_message_template', 
         'Hallo {username}!\n\nDeine Whitelist-Bewerbung wurde geprüft und du bist für ein Gespräch vorgesehen.\n\nTermin: {appointment_date}\nUhrzeit: {appointment_time}\n\nBitte melde dich zur angegebenen Zeit im Discord-Channel #whitelist-gespräche.\n\nViel Erfolg!\nDein {server_name} Team'
     );
     
-    // Platzhalter ersetzen
+    // Datum formatieren
+    $formattedDate = date('d.m.Y', strtotime($appointmentDate));
+    $formattedTime = date('H:i', strtotime($appointmentTime));
+    $formattedDateTime = date('d.m.Y H:i', strtotime($appointmentDateTime));
+    
+    // Platzhalter in der Nachricht ersetzen
     $message = str_replace([
         '{username}',
         '{server_name}',
@@ -87,9 +97,9 @@ try {
     ], [
         $application['discord_username'],
         $serverName,
-        $appointmentDate ?: 'Wird noch bekannt gegeben',
-        $appointmentTime ?: 'Wird noch bekannt gegeben',
-        $appointmentDateTime ? date('d.m.Y H:i', strtotime($appointmentDateTime)) : 'Wird noch bekannt gegeben'
+        $formattedDate,
+        $formattedTime,
+        $formattedDateTime
     ], $messageTemplate);
     
     // Discord PM senden
@@ -101,16 +111,13 @@ try {
     
     // Bewerbung aktualisieren
     $updateData = [
+        'appointment_date' => $appointmentDateTime,
         'appointment_message' => $message,
         'appointment_sent_at' => date('Y-m-d H:i:s'),
         'status' => 'closed',
         'reviewed_by' => getCurrentUser()['id'],
         'reviewed_at' => date('Y-m-d H:i:s')
     ];
-    
-    if ($appointmentDateTime) {
-        $updateData['appointment_date'] = $appointmentDateTime;
-    }
     
     $result = updateData('whitelist_applications', $updateData, 'id = :id', ['id' => $applicationId]);
     
@@ -123,14 +130,15 @@ try {
         logAdminActivity(
             getCurrentUser()['id'],
             'whitelist_appointment_sent',
-            "Termin-Nachricht an {$application['discord_username']} gesendet",
+            "Termin-Nachricht an {$application['discord_username']} gesendet für {$formattedDateTime}",
             'whitelist_application',
             $applicationId,
             null,
             [
                 'appointment_date' => $appointmentDateTime,
                 'message_length' => strlen($message),
-                'discord_id' => $application['discord_id']
+                'discord_id' => $application['discord_id'],
+                'discord_username' => $application['discord_username']
             ]
         );
     }
@@ -140,6 +148,7 @@ try {
         'success' => true,
         'message' => 'Termin-Nachricht erfolgreich gesendet',
         'appointment_date' => $appointmentDateTime,
+        'formatted_date' => $formattedDateTime,
         'discord_username' => $application['discord_username'],
         'timestamp' => time()
     ]);
@@ -177,15 +186,26 @@ function sendDiscordDirectMessage($userId, $message, $botToken) {
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
         
-        if ($httpCode !== 200) {
+        if ($curlError) {
             return [
                 'success' => false,
-                'error' => 'DM Channel konnte nicht erstellt werden (HTTP ' . $httpCode . ')'
+                'error' => 'cURL Fehler: ' . $curlError
+            ];
+        }
+        
+        if ($httpCode !== 200) {
+            $errorResponse = json_decode($response, true);
+            return [
+                'success' => false,
+                'error' => 'DM Channel konnte nicht erstellt werden (HTTP ' . $httpCode . '): ' . 
+                          ($errorResponse['message'] ?? 'Unbekannter Fehler')
             ];
         }
         
@@ -213,15 +233,25 @@ function sendDiscordDirectMessage($userId, $message, $botToken) {
             'Content-Type: application/json'
         ]);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
         curl_close($ch);
         
+        if ($curlError) {
+            return [
+                'success' => false,
+                'error' => 'cURL Fehler beim Senden: ' . $curlError
+            ];
+        }
+        
         if ($httpCode === 200 || $httpCode === 201) {
+            $messageResponse = json_decode($response, true);
             return [
                 'success' => true,
-                'message_id' => json_decode($response, true)['id'] ?? null
+                'message_id' => $messageResponse['id'] ?? null
             ];
         } else {
             $errorResponse = json_decode($response, true);

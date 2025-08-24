@@ -2486,5 +2486,301 @@ if ($currentUser['role'] === 'super_admin') {
         `;
         document.head.appendChild(style);
     </script>
+
+    <!-- 
+    TERMIN-MODAL FÜR ADMIN PANEL
+    Fügen Sie diesen Code am Ende Ihrer Admin-Panel HTML-Datei ein,
+    kurz vor dem schließenden </body> Tag
+-->
+
+<!-- Termin Modal -->
+<div id="appointmentModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 650px;">
+        <div class="modal-header">
+            <h2>📅 Termin senden</h2>
+            <button class="close" onclick="closeModal('appointmentModal')">&times;</button>
+        </div>
+
+        <div class="alert alert-info">
+            <strong>📧 Termin-Nachricht:</strong> Der Benutzer erhält eine Discord-Direktnachricht mit dem ausgewählten Termin. Die Nachricht wird aus den Server-Einstellungen "Termin-Nachrichten" generiert.
+        </div>
+
+        <!-- Discord Bot Status -->
+        <div id="discord_bot_status" style="margin-bottom: 1rem;">
+            <!-- Wird dynamisch gefüllt -->
+        </div>
+
+        <!-- Benutzer-Information -->
+        <div class="user-info" id="appointment_user_info" style="
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        ">
+            <!-- Wird dynamisch gefüllt -->
+        </div>
+
+        <form id="appointmentForm">
+            <input type="hidden" id="appointment_application_id" name="application_id">
+
+            <div class="form-row" style="display: flex; gap: 1rem;">
+                <div class="form-col" style="flex: 1;">
+                    <div class="form-group">
+                        <label for="appointment_date">📅 Datum</label>
+                        <input type="date" 
+                               id="appointment_date" 
+                               name="appointment_date" 
+                               class="form-control" 
+                               required
+                               style="width: 100%; padding: 0.75rem; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; background: rgba(0, 0, 0, 0.3); color: white;">
+                    </div>
+                </div>
+                <div class="form-col" style="flex: 1;">
+                    <div class="form-group">
+                        <label for="appointment_time">🕐 Uhrzeit</label>
+                        <input type="time" 
+                               id="appointment_time" 
+                               name="appointment_time" 
+                               class="form-control" 
+                               required
+                               style="width: 100%; padding: 0.75rem; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; background: rgba(0, 0, 0, 0.3); color: white;">
+                        <div class="quick-times" style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                            <span class="quick-time" onclick="setTime('18:00')" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3); color: #ff4444; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s ease;">18:00</span>
+                            <span class="quick-time" onclick="setTime('19:00')" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3); color: #ff4444; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s ease;">19:00</span>
+                            <span class="quick-time" onclick="setTime('20:00')" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3); color: #ff4444; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s ease;">20:00</span>
+                            <span class="quick-time" onclick="setTime('21:00')" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3); color: #ff4444; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s ease;">21:00</span>
+                            <span class="quick-time" onclick="setTime('22:00')" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3); color: #ff4444; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; cursor: pointer; transition: all 0.3s ease;">22:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>📋 Nachrichten-Vorschau</label>
+                <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; color: #fcd34d; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <strong>Hinweis:</strong> Die finale Nachricht wird automatisch aus der "Termin-Nachrichten Einstellung" generiert und die Platzhalter {username}, {server_name}, {appointment_date}, {appointment_time} werden ersetzt.
+                </div>
+                <div class="message-preview" id="message_preview" style="
+                    background: rgba(0, 0, 0, 0.3);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 8px;
+                    padding: 1rem;
+                    white-space: pre-wrap;
+                    font-family: monospace;
+                    font-size: 0.9rem;
+                    line-height: 1.4;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    color: #ccc;
+                ">
+                    Wählen Sie Datum und Uhrzeit aus, um eine Vorschau zu sehen...
+                </div>
+            </div>
+
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('appointmentModal')" style="
+                    padding: 0.75rem 1.5rem;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 8px;
+                    background: rgba(255, 255, 255, 0.1);
+                    color: white;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                ">
+                    ❌ Abbrechen
+                </button>
+                <button type="submit" id="sendAppointmentBtn" class="btn btn-primary" style="
+                    padding: 0.75rem 1.5rem;
+                    border: none;
+                    border-radius: 8px;
+                    background: linear-gradient(135deg, #ff4444, #cc0000);
+                    color: white;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                ">
+                    📧 Termin senden
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL CSS (falls noch nicht vorhanden) -->
+<style>
+/* Modal Basis-Styles */
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    border: 1px solid rgba(255, 68, 68, 0.3);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    margin: 5% auto;
+    padding: 2rem;
+    width: 90%;
+    max-width: 600px;
+    color: white;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-header h2 {
+    color: #ff4444;
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.close {
+    color: #ccc;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    background: none;
+    border: none;
+    padding: 0;
+    transition: color 0.3s ease;
+}
+
+.close:hover {
+    color: #ff4444;
+    transform: scale(1.1);
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #ff4444;
+    font-weight: 600;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #ff4444 !important;
+    box-shadow: 0 0 0 3px rgba(255, 68, 68, 0.1) !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+}
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.btn-primary:hover:not(:disabled) {
+    box-shadow: 0 8px 25px rgba(255, 68, 68, 0.3);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn.loading {
+    position: relative;
+    color: transparent;
+}
+
+.btn.loading::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.quick-time:hover {
+    background: rgba(255, 68, 68, 0.2) !important;
+    transform: scale(1.05);
+}
+
+.quick-time.selected {
+    background: rgba(255, 68, 68, 0.3) !important;
+    border-color: #ff4444 !important;
+    transform: scale(1.05) !important;
+}
+
+.alert {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+}
+
+.alert-info {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+    color: #93c5fd;
+}
+
+.alert-warning {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: #f59e0b;
+    color: #fcd34d;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .modal-content {
+        margin: 2% auto;
+        padding: 1.5rem;
+        width: 95%;
+    }
+
+    .form-row {
+        flex-direction: column !important;
+    }
+
+    .user-info {
+        flex-direction: column !important;
+        text-align: center;
+    }
+
+    .modal-footer {
+        flex-direction: column !important;
+    }
+}
+</style>
 </body>
 </html>
