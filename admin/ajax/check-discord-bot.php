@@ -6,54 +6,40 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET');
 header('Access-Control-Allow-Headers: Content-Type');
 
-if (!isLoggedIn() || !hasPermission('whitelist.read')) {
+// Nur GET-Requests erlauben
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+
+// Berechtigung prüfen
+if (!isLoggedIn() || !hasPermission('whitelist.update')) {
     http_response_code(403);
-    echo json_encode([
-        'success' => false, 
-        'error' => 'Keine Berechtigung',
-        'code' => 'FORBIDDEN'
-    ]);
+    echo json_encode(['success' => false, 'error' => 'Keine Berechtigung']);
     exit;
 }
 
 try {
-    // Bot-Konfiguration laden
-    $botToken = getServerSetting('discord_bot_token', '');
+    // Discord Bot-Konfiguration laden
+    $botToken = getServerSetting('discord_bot_token');
     $botEnabled = getServerSetting('discord_bot_enabled', '0');
     
-    error_log('🤖 Discord Bot Check - Enabled: ' . $botEnabled . ', Token length: ' . strlen($botToken));
-    
-    if ($botEnabled !== '1') {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Discord Bot ist deaktiviert',
-            'code' => 'BOT_DISABLED',
-            'bot_enabled' => false,
-            'bot_configured' => !empty($botToken)
-        ]);
-        exit;
+    if (!$botEnabled) {
+        throw new Exception('Discord Bot ist deaktiviert');
     }
     
     if (empty($botToken)) {
-        echo json_encode([
-            'success' => false,
-            'error' => 'Discord Bot Token nicht konfiguriert',
-            'code' => 'BOT_NOT_CONFIGURED',
-            'bot_enabled' => true,
-            'bot_configured' => false
-        ]);
-        exit;
+        throw new Exception('Discord Bot Token ist nicht konfiguriert');
     }
     
     // Bot Status über Discord API prüfen
-    error_log('🤖 Prüfe Discord Bot via API...');
-    
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, 'https://discord.com/api/v10/users/@me');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Authorization: Bot ' . $botToken,
-        'User-Agent: WhitelistBot/1.0'
+        'Content-Type: application/json'
     ]);
     curl_setopt($ch, CURLOPT_TIMEOUT, 10);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
@@ -63,110 +49,46 @@ try {
     $curlError = curl_error($ch);
     curl_close($ch);
     
-    if (!empty($curlError)) {
-        error_log('❌ CURL Error: ' . $curlError);
-        echo json_encode([
-            'success' => false,
-            'error' => 'Verbindungsfehler: ' . $curlError,
-            'code' => 'CONNECTION_ERROR',
-            'bot_enabled' => true,
-            'bot_configured' => true
-        ]);
-        exit;
+    if ($curlError) {
+        throw new Exception('Netzwerkfehler: ' . $curlError);
     }
     
-    error_log("🤖 Discord API Response: HTTP $httpCode - " . substr($response, 0, 200));
-    
-    if ($httpCode === 200) {
-        $botData = json_decode($response, true);
-        
-        if ($botData && isset($botData['username'])) {
-            error_log('✅ Bot erfolgreich verifiziert: ' . $botData['username']);
-            
-            echo json_encode([
-                'success' => true,
-                'message' => 'Discord Bot ist bereit',
-                'bot_name' => $botData['username'],
-                'bot_id' => $botData['id'] ?? null,
-                'discriminator' => $botData['discriminator'] ?? '0000',
-                'verified' => $botData['verified'] ?? false,
-                'bot_enabled' => true,
-                'bot_configured' => true,
-                'can_send_messages' => true
-            ]);
-        } else {
-            error_log('❌ Ungültige Bot-Response: ' . $response);
-            echo json_encode([
-                'success' => false,
-                'error' => 'Ungültige Discord API Response',
-                'code' => 'INVALID_RESPONSE',
-                'bot_enabled' => true,
-                'bot_configured' => true,
-                'raw_response' => DEBUG_MODE ? $response : null
-            ]);
-        }
-    } else {
-        // Spezifische Discord-Fehlercodes behandeln
-        $errorData = json_decode($response, true);
-        $errorMessage = 'Bot nicht erreichbar (HTTP ' . $httpCode . ')';
-        $errorCode = 'HTTP_' . $httpCode;
-        
-        if ($errorData && isset($errorData['message'])) {
-            $errorMessage .= ': ' . $errorData['message'];
-            
-            // Discord-spezifische Fehlercodes
-            if (isset($errorData['code'])) {
-                switch ($errorData['code']) {
-                    case 0:
-                        $errorMessage = 'Bot Token ist ungültig oder abgelaufen';
-                        $errorCode = 'INVALID_TOKEN';
-                        break;
-                    case 40001:
-                        $errorMessage = 'Bot hat keine notwendigen Berechtigungen';
-                        $errorCode = 'INSUFFICIENT_PERMISSIONS';
-                        break;
-                    case 50001:
-                        $errorMessage = 'Bot hat keinen Zugriff auf diese Ressource';
-                        $errorCode = 'MISSING_ACCESS';
-                        break;
-                }
-            }
-        } else if ($httpCode === 401) {
-            $errorMessage = 'Bot Token ist ungültig oder abgelaufen';
-            $errorCode = 'INVALID_TOKEN';
-        } else if ($httpCode === 429) {
-            $errorMessage = 'Discord API Rate-Limit erreicht';
-            $errorCode = 'RATE_LIMITED';
-        }
-        
-        error_log("❌ Discord API Error: $errorMessage");
-        
-        echo json_encode([
-            'success' => false,
-            'error' => $errorMessage,
-            'code' => $errorCode,
-            'http_code' => $httpCode,
-            'bot_enabled' => true,
-            'bot_configured' => true,
-            'can_send_messages' => false,
-            'raw_response' => DEBUG_MODE ? $response : null
-        ]);
+    if ($httpCode !== 200) {
+        $errorResponse = json_decode($response, true);
+        $errorMessage = isset($errorResponse['message']) ? $errorResponse['message'] : 'HTTP ' . $httpCode;
+        throw new Exception('Discord API Fehler: ' . $errorMessage);
     }
+    
+    $botData = json_decode($response, true);
+    
+    if (!$botData || !isset($botData['id'])) {
+        throw new Exception('Ungültige Bot-Daten erhalten');
+    }
+    
+    // Bot verfügbar
+    echo json_encode([
+        'success' => true,
+        'bot_available' => true,
+        'bot_username' => $botData['username'] ?? 'Unbekannt',
+        'bot_id' => $botData['id'],
+        'bot_verified' => $botData['verified'] ?? false,
+        'message' => 'Discord Bot ist verfügbar und bereit'
+    ]);
     
 } catch (Exception $e) {
-    error_log('❌ Exception in Discord Bot Check: ' . $e->getMessage());
+    // Bot nicht verfügbar
+    error_log('Discord bot check error: ' . $e->getMessage());
     
     echo json_encode([
         'success' => false,
-        'error' => 'Server-Fehler beim Prüfen des Discord Bots: ' . $e->getMessage(),
-        'code' => 'SERVER_ERROR',
-        'bot_enabled' => false,
-        'bot_configured' => false,
-        'can_send_messages' => false,
-        'debug_info' => DEBUG_MODE ? [
-            'file' => $e->getFile(),
-            'line' => $e->getLine()
-        ] : null
+        'bot_available' => false,
+        'error' => $e->getMessage(),
+        'troubleshooting' => [
+            'Bot Token prüfen',
+            'Bot Permissions verifizieren', 
+            'Discord Server Status prüfen',
+            'Internet-Verbindung testen'
+        ]
     ]);
 }
 ?>
