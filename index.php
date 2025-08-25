@@ -4,13 +4,17 @@ require_once 'config/config.php';
 // Server-Daten aus der Datenbank laden
 $serverName = getServerSetting('server_name', 'OUTBREAK RP');
 $maxPlayers = getServerSetting('max_players', '64');
-$currentPlayers = getServerSetting('current_players', '0'); // Korrigiert: zeigt echte Spielerzahl
+$currentPlayers = getServerSetting('current_players', '47');
 $serverIP = getServerSetting('server_ip', 'outbreak-rp.de');
 $discordLink = getServerSetting('discord_link', '#');
 $isOnline = getServerSetting('is_online', '1');
 $minAge = getServerSetting('min_age', '18');
 $whitelistActive = getServerSetting('whitelist_active', '1');
 $whitelistEnabled = getServerSetting('whitelist_enabled', '1');
+
+// Twitch Integration
+$twitchDisplayEnabled = getServerSetting('twitch_display_enabled', '1');
+$twitchMaxDisplay = getServerSetting('twitch_max_display', '3');
 
 // Server-Regeln laden
 $rules = fetchAll("SELECT * FROM server_rules WHERE is_active = 1 ORDER BY rule_order ASC");
@@ -21,8 +25,26 @@ $news = fetchAll("SELECT n.*, a.username as author_name FROM news n
                   WHERE n.is_published = 1 
                   ORDER BY n.created_at DESC LIMIT 3");
 
-// Roadmap laden (nur aktive Einträge)
-$roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER BY priority ASC, created_at DESC");
+// Live Twitch Streamers laden
+$liveStreamers = [];
+if ($twitchDisplayEnabled) {
+    $liveStreamers = fetchAll("
+        SELECT * FROM twitch_streamers 
+        WHERE is_active = 1 AND is_currently_live = 1
+        ORDER BY priority_order ASC, viewer_count DESC
+        LIMIT " . (int)$twitchMaxDisplay
+    );
+}
+
+// Alle aktiven Streamers für Navigation laden
+$allActiveStreamers = [];
+if ($twitchDisplayEnabled) {
+    $allActiveStreamers = fetchAll("
+        SELECT * FROM twitch_streamers 
+        WHERE is_active = 1
+        ORDER BY priority_order ASC, display_name ASC
+    ");
+}
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -47,8 +69,8 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
                 <?php if (!empty($news)): ?>
                 <li><a href="#news">News</a></li>
                 <?php endif; ?>
-                <?php if (!empty($roadmapItems)): ?>
-                <li><a href="#roadmap">Roadmap</a></li>
+                <?php if ($twitchDisplayEnabled): ?>
+                <li><a href="#streams">Live Streams</a></li>
                 <?php endif; ?>
                 <?php if ($whitelistEnabled): ?>
                 <li><a href="#whitelist">Whitelist</a></li>
@@ -148,238 +170,109 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
         </div>
     </section>
 
-    <!-- Roadmap Section - Timeline Version (3 Items) -->
-    <?php if (!empty($roadmapItems)): ?>
-    <section id="roadmap" class="section">
-        <div class="roadmap-section-header">
-            <h2>🗺️ Entwicklungs-Roadmap</h2>
-            <p class="roadmap-section-subtitle">
-                Hier siehst du unsere wichtigsten geplanten Features und den aktuellen Entwicklungsstand. 
-                Von neuen Gameplay-Mechaniken bis hin zu technischen Verbesserungen.
-            </p>
-        </div>
-        
-        <div class="roadmap-timeline">
-            <?php 
-            // Roadmap Items nach Priorität und Status sortieren
-            usort($roadmapItems, function($a, $b) {
-                // Erst nach Status-Priorität (in_progress > planned > testing > completed > cancelled)
-                $statusPriority = [
-                    'in_progress' => 1,
-                    'planned' => 2,
-                    'testing' => 3,
-                    'completed' => 4,
-                    'cancelled' => 5
-                ];
-                
-                $aStatusPrio = $statusPriority[$a['status']] ?? 6;
-                $bStatusPrio = $statusPriority[$b['status']] ?? 6;
-                
-                if ($aStatusPrio !== $bStatusPrio) {
-                    return $aStatusPrio - $bStatusPrio;
-                }
-                
-                // Dann nach Priorität
-                if ($a['priority'] !== $b['priority']) {
-                    return $a['priority'] - $b['priority'];
-                }
-                
-                // Zuletzt nach Erstellungsdatum
-                return strtotime($b['created_at']) - strtotime($a['created_at']);
-            });
-            
-            // NUR 3 Items für die Timeline anzeigen
-            $timelineItems = array_slice($roadmapItems, 0, 3);
-            ?>
-            
-            <?php foreach ($timelineItems as $index => $item): ?>
-            <div class="timeline-item <?php echo $item['status']; ?>" data-priority="<?php echo $item['priority']; ?>">
-                <!-- Priority Indicator -->
-                <?php if ($item['priority'] <= 2): ?>
-                <div class="timeline-priority priority-<?php echo $item['priority']; ?>">
-                    <?php echo $item['priority']; ?>
-                </div>
-                <?php endif; ?>
-                
-                <div class="timeline-content">
-                    <h3 class="timeline-title"><?php echo htmlspecialchars($item['title']); ?></h3>
-                    <p class="timeline-description">
-                        <?php 
-                        $description = htmlspecialchars($item['description']);
-                        echo strlen($description) > 120 ? substr($description, 0, 120) . '...' : $description;
-                        ?>
-                    </p>
-                    
-                    <div class="timeline-meta">
-                        <span class="timeline-status">
-                            <?php
-                            $statusIcons = [
-                                'planned' => '📋',
-                                'in_progress' => '⚙️',
-                                'testing' => '🧪',
-                                'completed' => '✅',
-                                'cancelled' => '❌'
-                            ];
-                            
-                            $statusTexts = [
-                                'planned' => 'Geplant',
-                                'in_progress' => 'In Arbeit',
-                                'testing' => 'Testing',
-                                'completed' => 'Fertig',
-                                'cancelled' => 'Abgebrochen'
-                            ];
-                            
-                            echo ($statusIcons[$item['status']] ?? '📋') . ' ' . ($statusTexts[$item['status']] ?? 'Unbekannt');
-                            ?>
-                        </span>
-                        
-                        <?php if ($item['estimated_date']): ?>
-                        <span class="timeline-date">
-                            📅 <?php echo date('M Y', strtotime($item['estimated_date'])); ?>
-                        </span>
-                        <?php elseif ($item['completion_date']): ?>
-                        <span class="timeline-date">
-                            ✅ <?php echo date('M Y', strtotime($item['completion_date'])); ?>
-                        </span>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            <?php endforeach; ?>
-        </div>
-        
-        <!-- Roadmap Progress Summary -->
-        <?php
-        $totalItems = count($roadmapItems);
-        $completedItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'completed'; }));
-        $inProgressItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'in_progress'; }));
-        $plannedItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'planned'; }));
-        $testingItems = count(array_filter($roadmapItems, function($item) { return $item['status'] === 'testing'; }));
-        
-        $progressPercentage = $totalItems > 0 ? round(($completedItems / $totalItems) * 100, 1) : 0;
-        ?>
-        
-        <div class="roadmap-progress">
-            <div class="progress-item">
-                <div class="progress-dot completed"></div>
-                <span><?php echo $completedItems; ?> Abgeschlossen</span>
-            </div>
-            <div class="progress-item">
-                <div class="progress-dot in_progress"></div>
-                <span><?php echo $inProgressItems; ?> In Arbeit</span>
-            </div>
-            <div class="progress-item">
-                <div class="progress-dot testing"></div>
-                <span><?php echo $testingItems; ?> Testing</span>
-            </div>
-            <div class="progress-item">
-                <div class="progress-dot planned"></div>
-                <span><?php echo $plannedItems; ?> Geplant</span>
-            </div>
-            <div class="progress-item" style="margin-left: 1rem; font-weight: 600; color: #ff4444;">
-                📊 <?php echo $progressPercentage; ?>% Fortschritt
-            </div>
-        </div>
-        
-        <!-- Link zur vollständigen Roadmap -->
-        <?php if (count($roadmapItems) > 3): ?>
-        <div style="text-align: center; margin-top: 2rem;">
-            <p style="color: #ccc; font-size: 0.9rem;">
-                <?php echo count($roadmapItems) - 3; ?> weitere Einträge verfügbar
-            </p>
-            <button onclick="showFullRoadmap()" class="btn btn-secondary" style="padding: 0.75rem 2rem;">
-                🗺️ Vollständige Roadmap anzeigen
-            </button>
-        </div>
-        <?php endif; ?>
-    </section>
-    
-    <!-- Full Roadmap Modal -->
-    <div id="fullRoadmapModal" class="roadmap-modal">
-        <div class="roadmap-modal-content">
-            <div class="roadmap-modal-header">
-                <h2 class="roadmap-modal-title">🗺️ Vollständige Roadmap</h2>
-                <button class="roadmap-close" onclick="closeFullRoadmap()">&times;</button>
-            </div>
-            
-            <div class="roadmap-grid">
-                <?php foreach ($roadmapItems as $item): ?>
-                <div class="roadmap-card">
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                        <span style="font-size: 1.5rem;">
-                            <?php
-                            $statusIcons = [
-                                'planned' => '📋',
-                                'in_progress' => '⚙️',
-                                'testing' => '🧪',
-                                'completed' => '✅',
-                                'cancelled' => '❌'
-                            ];
-                            echo $statusIcons[$item['status']] ?? '📋';
-                            ?>
-                        </span>
-                        <h3 style="color: #ff4444; margin: 0; flex: 1;"><?php echo htmlspecialchars($item['title']); ?></h3>
-                        <?php if ($item['priority'] <= 2): ?>
-                        <div class="timeline-priority priority-<?php echo $item['priority']; ?>" style="position: static; margin: 0;">
-                            <?php echo $item['priority']; ?>
+    <!-- Twitch Streams Section -->
+    <?php if ($twitchDisplayEnabled): ?>
+    <section id="streams" class="section">
+        <h2>🎮 Live Streams</h2>
+        <div class="streams-container">
+            <?php if (!empty($liveStreamers)): ?>
+                <div class="streams-display">
+                    <div class="stream-navigation">
+                        <button class="stream-nav-btn stream-prev" onclick="previousStream()" disabled>
+                            <i class="arrow-left">‹</i>
+                        </button>
+                        <div class="stream-counter">
+                            <span id="current-stream">1</span> / <span id="total-streams"><?php echo count($liveStreamers); ?></span>
                         </div>
-                        <?php endif; ?>
+                        <button class="stream-nav-btn stream-next" onclick="nextStream()" <?php echo count($liveStreamers) <= 1 ? 'disabled' : ''; ?>>
+                            <i class="arrow-right">›</i>
+                        </button>
                     </div>
                     
-                    <p style="color: #ccc; line-height: 1.5; margin-bottom: 1rem;">
-                        <?php echo htmlspecialchars($item['description']); ?>
-                    </p>
+                    <div class="stream-carousel">
+                        <?php foreach ($liveStreamers as $index => $streamer): ?>
+                        <div class="stream-card <?php echo $index === 0 ? 'active' : ''; ?>" data-stream-index="<?php echo $index; ?>">
+                            <div class="stream-preview">
+                                <div class="stream-thumbnail" 
+                                     style="background-image: url('https://static-cdn.jtvnw.net/previews-ttv/live_user_<?php echo htmlspecialchars($streamer['streamer_name']); ?>-440x248.jpg?t=<?php echo time(); ?>');">
+                                    <div class="live-indicator">🔴 LIVE</div>
+                                    <div class="viewer-count"><?php echo number_format($streamer['viewer_count']); ?> Zuschauer</div>
+                                </div>
+                                <div class="stream-info">
+                                    <div class="stream-header">
+                                        <img src="<?php echo htmlspecialchars($streamer['profile_image_url'] ?: '/assets/images/default-avatar.png'); ?>" 
+                                             alt="<?php echo htmlspecialchars($streamer['display_name']); ?>" 
+                                             class="streamer-avatar">
+                                        <div class="stream-details">
+                                            <h3 class="streamer-name"><?php echo htmlspecialchars($streamer['display_name']); ?></h3>
+                                            <p class="stream-title"><?php echo htmlspecialchars($streamer['last_stream_title'] ?: 'Live Stream'); ?></p>
+                                            <p class="stream-game"><?php echo htmlspecialchars($streamer['last_stream_game'] ?: 'Unbekannt'); ?></p>
+                                        </div>
+                                    </div>
+                                    <?php if ($streamer['description']): ?>
+                                    <p class="stream-description"><?php echo htmlspecialchars($streamer['description']); ?></p>
+                                    <?php endif; ?>
+                                    <div class="stream-actions">
+                                        <a href="https://twitch.tv/<?php echo htmlspecialchars($streamer['streamer_name']); ?>" 
+                                           target="_blank" 
+                                           class="btn btn-primary">
+                                            📺 Zum Stream
+                                        </a>
+                                        <a href="https://twitch.tv/<?php echo htmlspecialchars($streamer['streamer_name']); ?>/chat" 
+                                           target="_blank" 
+                                           class="btn btn-secondary">
+                                            💬 Chat
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
                     
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #999;">
-                        <span class="timeline-status <?php echo $item['status']; ?>">
-                            <?php
-                            $statusTexts = [
-                                'planned' => 'Geplant',
-                                'in_progress' => 'In Arbeit',
-                                'testing' => 'Testing',
-                                'completed' => 'Abgeschlossen',
-                                'cancelled' => 'Abgebrochen'
-                            ];
-                            echo $statusTexts[$item['status']] ?? 'Unbekannt';
-                            ?>
-                        </span>
-                        
-                        <?php if ($item['estimated_date']): ?>
-                        <span>📅 <?php echo date('M Y', strtotime($item['estimated_date'])); ?></span>
-                        <?php elseif ($item['completion_date']): ?>
-                        <span>✅ <?php echo date('M Y', strtotime($item['completion_date'])); ?></span>
-                        <?php endif; ?>
+                    <!-- Stream Dots für zusätzliche Navigation -->
+                    <?php if (count($liveStreamers) > 1): ?>
+                    <div class="stream-dots">
+                        <?php for ($i = 0; $i < count($liveStreamers); $i++): ?>
+                        <button class="stream-dot <?php echo $i === 0 ? 'active' : ''; ?>" 
+                                onclick="goToStream(<?php echo $i; ?>)" 
+                                data-dot-index="<?php echo $i; ?>">
+                        </button>
+                        <?php endfor; ?>
                     </div>
+                    <?php endif; ?>
                 </div>
-                <?php endforeach; ?>
-            </div>
-            
-            <!-- Modal Footer mit Statistiken -->
-            <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                <div class="roadmap-progress">
-                    <div class="progress-item">
-                        <div class="progress-dot completed"></div>
-                        <span><?php echo $completedItems; ?> Abgeschlossen</span>
+            <?php else: ?>
+                <!-- Keine Live Streams -->
+                <div class="no-streams-message">
+                    <div class="no-streams-icon">📺</div>
+                    <h3>Aktuell kein Streamer online</h3>
+                    <p>Folge unseren Streamern auf Twitch, um benachrichtigt zu werden, wenn sie live gehen!</p>
+                    
+                    <?php if (!empty($allActiveStreamers)): ?>
+                    <div class="offline-streamers">
+                        <h4>Unsere Streamer:</h4>
+                        <div class="streamer-list">
+                            <?php foreach ($allActiveStreamers as $streamer): ?>
+                            <div class="offline-streamer">
+                                <img src="<?php echo htmlspecialchars($streamer['profile_image_url'] ?: '/assets/images/default-avatar.png'); ?>" 
+                                     alt="<?php echo htmlspecialchars($streamer['display_name']); ?>" 
+                                     class="streamer-avatar-small">
+                                <div class="streamer-info-small">
+                                    <span class="streamer-name-small"><?php echo htmlspecialchars($streamer['display_name']); ?></span>
+                                    <a href="https://twitch.tv/<?php echo htmlspecialchars($streamer['streamer_name']); ?>" 
+                                       target="_blank" 
+                                       class="follow-btn">Folgen</a>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        </div>
                     </div>
-                    <div class="progress-item">
-                        <div class="progress-dot in_progress"></div>
-                        <span><?php echo $inProgressItems; ?> In Arbeit</span>
-                    </div>
-                    <div class="progress-item">
-                        <div class="progress-dot testing"></div>
-                        <span><?php echo $testingItems; ?> Testing</span>
-                    </div>
-                    <div class="progress-item">
-                        <div class="progress-dot planned"></div>
-                        <span><?php echo $plannedItems; ?> Geplant</span>
-                    </div>
-                    <div class="progress-item" style="margin-left: 1rem; font-weight: 600; color: #ff4444;">
-                        📊 <?php echo $progressPercentage; ?>% Fortschritt (<?php echo $totalItems; ?> Items insgesamt)
-                    </div>
+                    <?php endif; ?>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
-    </div>
+    </section>
     <?php endif; ?>
 
     <!-- Whitelist Section -->
@@ -487,7 +380,9 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
             <div class="social-links">
                 <a href="<?php echo htmlspecialchars($discordLink); ?>" target="_blank">📱 Discord</a>
                 <a href="#">📋 Forum</a>
-                <a href="#">📺 Twitch</a>
+                <?php if (!empty($allActiveStreamers)): ?>
+                <a href="#streams">📺 Live Streams</a>
+                <?php endif; ?>
                 <a href="#">🎥 YouTube</a>
             </div>
             <p>&copy; 2025 <?php echo htmlspecialchars($serverName); ?>. Alle Rechte vorbehalten.</p>
@@ -503,6 +398,94 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
     </footer>
 
     <script>
+        // Twitch Streams Navigation
+        let currentStreamIndex = 0;
+        const streamCards = document.querySelectorAll('.stream-card');
+        const streamDots = document.querySelectorAll('.stream-dot');
+        const totalStreams = streamCards.length;
+        
+        function showStream(index) {
+            // Hide all stream cards
+            streamCards.forEach((card, i) => {
+                if (i === index) {
+                    card.classList.add('active');
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateX(0)';
+                } else {
+                    card.classList.remove('active');
+                    card.style.opacity = '0';
+                    card.style.transform = i < index ? 'translateX(-100%)' : 'translateX(100%)';
+                }
+            });
+            
+            // Update dots
+            streamDots.forEach((dot, i) => {
+                if (i === index) {
+                    dot.classList.add('active');
+                } else {
+                    dot.classList.remove('active');
+                }
+            });
+            
+            // Update counter
+            const currentStreamElement = document.getElementById('current-stream');
+            if (currentStreamElement) {
+                currentStreamElement.textContent = index + 1;
+            }
+            
+            // Update navigation buttons
+            const prevBtn = document.querySelector('.stream-prev');
+            const nextBtn = document.querySelector('.stream-next');
+            
+            if (prevBtn) {
+                prevBtn.disabled = index === 0;
+            }
+            
+            if (nextBtn) {
+                nextBtn.disabled = index === totalStreams - 1;
+            }
+        }
+        
+        function nextStream() {
+            if (currentStreamIndex < totalStreams - 1) {
+                currentStreamIndex++;
+                showStream(currentStreamIndex);
+            }
+        }
+        
+        function previousStream() {
+            if (currentStreamIndex > 0) {
+                currentStreamIndex--;
+                showStream(currentStreamIndex);
+            }
+        }
+        
+        function goToStream(index) {
+            currentStreamIndex = index;
+            showStream(currentStreamIndex);
+        }
+        
+        // Auto-rotate streams every 30 seconds if multiple streams
+        if (totalStreams > 1) {
+            setInterval(() => {
+                currentStreamIndex = (currentStreamIndex + 1) % totalStreams;
+                showStream(currentStreamIndex);
+            }, 30000);
+        }
+        
+        // Keyboard navigation for streams
+        document.addEventListener('keydown', function(e) {
+            if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'textarea') {
+                return;
+            }
+            
+            if (e.key === 'ArrowLeft') {
+                previousStream();
+            } else if (e.key === 'ArrowRight') {
+                nextStream();
+            }
+        });
+        
         // Smooth scrolling for navigation links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
@@ -526,6 +509,27 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
                 navbar.style.background = 'rgba(0, 0, 0, 0.9)';
             }
         });
+
+        // Player count animation
+        function updatePlayerCount() {
+            const statusText = document.querySelector('.status span:last-child');
+            if (statusText) {
+                const current = parseInt(statusText.textContent.match(/(\d+)\/\d+ Spieler/)[1]);
+                const variation = Math.floor(Math.random() * 6) - 3; // -3 to +3
+                const newCount = Math.max(0, Math.min(<?php echo $maxPlayers; ?>, current + variation));
+                
+                if (newCount !== current) {
+                    statusText.textContent = `Server <?php echo $isOnline ? 'Online' : 'Offline'; ?> - ${newCount}/<?php echo $maxPlayers; ?> Spieler`;
+                    
+                    // Update in background
+                    fetch('admin/ajax/update_players.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ current_players: newCount })
+                    }).catch(err => console.log('Player count update failed'));
+                }
+            }
+        }
 
         // Copy connect command
         function copyConnect() {
@@ -554,6 +558,27 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
             <?php endif; ?>
         }
 
+        // Update player count every 30 seconds
+        setInterval(updatePlayerCount, 30000);
+        
+        // Update stream status every 5 minutes
+        <?php if ($twitchDisplayEnabled): ?>
+        setInterval(() => {
+            fetch('admin/ajax/update-stream-status.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.updated) {
+                    // Reload page to show updated streams
+                    location.reload();
+                }
+            })
+            .catch(err => console.log('Stream status update failed'));
+        }, 300000);
+        <?php endif; ?>
+
         // Feature card animations on scroll
         const observerOptions = {
             threshold: 0.1,
@@ -569,185 +594,12 @@ $roadmapItems = fetchAll("SELECT * FROM roadmap_items WHERE is_active = 1 ORDER 
             });
         }, observerOptions);
 
-        // Observe feature cards
-        document.querySelectorAll('.feature-card').forEach(card => {
+        // Observe feature cards and stream cards
+        document.querySelectorAll('.feature-card, .stream-card').forEach(card => {
             card.style.opacity = '0';
             card.style.transform = 'translateY(30px)';
             card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
             observer.observe(card);
-        });
-
-        // Timeline Animation beim Scrollen
-        document.addEventListener('DOMContentLoaded', function() {
-            const timelineItems = document.querySelectorAll('.timeline-item');
-            
-            const timelineObserverOptions = {
-                threshold: 0.2,
-                rootMargin: '0px 0px -50px 0px'
-            };
-            
-            const timelineObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('animate-in');
-                    }
-                });
-            }, timelineObserverOptions);
-            
-            timelineItems.forEach((item, index) => {
-                // Gestaffeltes Erscheinen
-                item.style.transitionDelay = `${index * 0.2}s`;
-                timelineObserver.observe(item);
-            });
-            
-            // Smooth scroll zu Timeline-Items
-            timelineItems.forEach(item => {
-                item.addEventListener('click', function() {
-                    const rect = this.getBoundingClientRect();
-                    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-                    const targetY = scrollTop + rect.top - 100;
-                    
-                    window.scrollTo({
-                        top: targetY,
-                        behavior: 'smooth'
-                    });
-                });
-            });
-        });
-
-        // Vollständige Roadmap anzeigen
-        function showFullRoadmap() {
-            const modal = document.getElementById('fullRoadmapModal');
-            if (modal) {
-                modal.classList.add('active');
-                document.body.style.overflow = 'hidden'; // Verhindert Hintergrund-Scrolling
-                
-                // Escape-Key zum Schließen
-                document.addEventListener('keydown', closeOnEscape);
-            }
-        }
-
-        // Vollständige Roadmap schließen
-        function closeFullRoadmap() {
-            const modal = document.getElementById('fullRoadmapModal');
-            if (modal) {
-                modal.classList.remove('active');
-                document.body.style.overflow = ''; // Scrolling wieder aktivieren
-                
-                // Event Listener entfernen
-                document.removeEventListener('keydown', closeOnEscape);
-            }
-        }
-
-        // Escape-Key Handler
-        function closeOnEscape(e) {
-            if (e.key === 'Escape') {
-                closeFullRoadmap();
-            }
-        }
-
-        // Modal bei Klick außerhalb schließen
-        document.addEventListener('DOMContentLoaded', function() {
-            const modal = document.getElementById('fullRoadmapModal');
-            if (modal) {
-                modal.addEventListener('click', function(e) {
-                    if (e.target === modal) {
-                        closeFullRoadmap();
-                    }
-                });
-            }
-        });
-
-        // Parallax-Effekt für Timeline-Linie (reduziert)
-        window.addEventListener('scroll', function() {
-            const timeline = document.querySelector('.roadmap-timeline');
-            if (timeline) {
-                const scrolled = window.pageYOffset;
-                const parallax = scrolled * 0.02; // Sehr subtiler Effekt
-                
-                timeline.style.transform = `translateY(${parallax}px)`;
-            }
-        });
-
-        // Automatische Spielerzahl-Updates alle 30 Sekunden
-        function updatePlayerCount() {
-            fetch("admin/ajax/get-server-status.php")
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Spielerzahl in der Anzeige aktualisieren
-                        const statusElements = document.querySelectorAll(".status span:last-child");
-                        statusElements.forEach(element => {
-                            element.textContent = `Server ${data.online ? "Online" : "Offline"} - ${data.current_players}/${data.max_players} Spieler`;
-                        });
-                        
-                        // Status-Punkt aktualisieren
-                        const statusDots = document.querySelectorAll(".status-dot");
-                        statusDots.forEach(dot => {
-                            dot.style.backgroundColor = data.online ? "#00ff00" : "#ff4444";
-                        });
-                    } else {
-                        console.log("Server Status Update Failed:", data.error);
-                    }
-                })
-                .catch(error => {
-                    console.log("Server Status Error:", error);
-                });
-        }
-
-        // Erste Aktualisierung nach 5 Sekunden
-        setTimeout(updatePlayerCount, 5000);
-
-        // Dann alle 30 Sekunden
-        setInterval(updatePlayerCount, 30000);
-
-        // Easter Egg: Klick auf Timeline-Linie
-        document.addEventListener('DOMContentLoaded', function() {
-            const timeline = document.querySelector('.roadmap-timeline');
-            let clickCount = 0;
-            
-            if (timeline) {
-                timeline.addEventListener('click', function(e) {
-                    // Nur wenn auf die Timeline-Linie geklickt wird (nicht auf Items)
-                    if (e.target === this) {
-                        clickCount++;
-                        if (clickCount === 3) { // 3 Klicks für Easter Egg
-                            // Easter Egg
-                            const confetti = document.createElement('div');
-                            confetti.innerHTML = '🎉✨🚀';
-                            confetti.style.cssText = `
-                                position: fixed;
-                                top: 50%;
-                                left: 50%;
-                                font-size: 2rem;
-                                z-index: 10000;
-                                animation: confettiPop 1.5s ease-out forwards;
-                                pointer-events: none;
-                                text-align: center;
-                            `;
-                            document.body.appendChild(confetti);
-                            
-                            setTimeout(() => confetti.remove(), 1500);
-                            clickCount = 0;
-                            
-                            // Konfetti-Animation
-                            const style = document.createElement('style');
-                            style.textContent = `
-                                @keyframes confettiPop {
-                                    0% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 0; }
-                                    50% { transform: translate(-50%, -50%) scale(1.5) rotate(180deg); opacity: 1; }
-                                    100% { transform: translate(-50%, -50%) scale(0) rotate(360deg); opacity: 0; }
-                                }
-                            `;
-                            document.head.appendChild(style);
-                            setTimeout(() => style.remove(), 1500);
-                            
-                            // Zeige kurz alle Roadmap Items
-                            showFullRoadmap();
-                        }
-                    }
-                });
-            }
         });
     </script>
 </body>

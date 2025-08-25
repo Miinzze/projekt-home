@@ -1,3 +1,19 @@
+:root {
+    --primary: #ff4444;
+    --secondary: #ff6b6b;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --dark: #1a1a1a;
+    --darker: #111111;
+    --text: #ffffff;
+    --text-secondary: #cccccc;
+    --gray: #666666;
+    --border: rgba(255, 255, 255, 0.1);
+    --twitch: #9146ff;
+    --twitch-hover: #772ce8;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -858,6 +874,28 @@ body {
         font-size: 0.8rem;
         margin-bottom: 0.5rem;
     }
+
+    .stream-carousel {
+        height: auto;
+        min-height: 500px;
+    }
+    
+    .streams-display {
+        padding: 1rem;
+    }
+    
+    .stream-info {
+        padding: 1rem;
+    }
+    
+    .stream-actions {
+        flex-direction: column;
+    }
+    
+    .stream-actions .btn {
+        width: 100%;
+        text-align: center;
+    }
 }
 
 /* Section Header für Timeline */
@@ -953,4 +991,364 @@ body {
     .section {
         padding: 40px 1rem;
     }
+
+    .stream-navigation {
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    
+    .stream-nav-btn {
+        width: 45px;
+        height: 45px;
+        font-size: 1.3rem;
+    }
+    
+    .stream-carousel {
+        height: 600px;
+    }
+    
+    .stream-header {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .streamer-avatar {
+        width: 80px;
+        height: 80px;
+    }
+    
+    .stream-actions {
+        justify-content: center;
+    }
+}
+
+/* Twitch Streams Section */
+.streams-container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.streams-display {
+    position: relative;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    padding: 2rem;
+    backdrop-filter: blur(10px);
+}
+
+.stream-navigation {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.stream-nav-btn {
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border: none;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    color: var(--text);
+    font-size: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stream-nav-btn:hover:not(:disabled) {
+    transform: scale(1.1);
+    box-shadow: 0 8px 25px rgba(255, 68, 68, 0.4);
+}
+
+.stream-nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    background: var(--gray);
+}
+
+.stream-counter {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--primary);
+    min-width: 80px;
+    text-align: center;
+}
+
+.stream-carousel {
+    position: relative;
+    height: 500px;
+    overflow: hidden;
+    border-radius: 15px;
+}
+
+.stream-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.5s ease-in-out;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.8), rgba(26, 26, 26, 0.9));
+    border-radius: 15px;
+    overflow: hidden;
+}
+
+.stream-card.active {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.stream-preview {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.stream-thumbnail {
+    flex: 1;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    position: relative;
+    border-radius: 12px 12px 0 0;
+    background-color: var(--darker);
+    background-image: linear-gradient(45deg, 
+        rgba(255, 68, 68, 0.1) 25%, transparent 25%,
+        transparent 75%, rgba(255, 68, 68, 0.1) 75%),
+        linear-gradient(45deg, 
+        rgba(255, 68, 68, 0.1) 25%, transparent 25%,
+        transparent 75%, rgba(255, 68, 68, 0.1) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+}
+
+.live-indicator {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    background: var(--danger);
+    color: var(--text);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    animation: pulse 2s infinite;
+}
+
+.viewer-count {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.8);
+    color: var(--text);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    backdrop-filter: blur(10px);
+}
+
+.stream-info {
+    padding: 1.5rem;
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(26, 26, 26, 0.8));
+}
+
+.stream-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.streamer-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 3px solid var(--twitch);
+    object-fit: cover;
+}
+
+.stream-details {
+    flex: 1;
+}
+
+.streamer-name {
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: var(--primary);
+    margin-bottom: 0.25rem;
+}
+
+.stream-title {
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 0.25rem;
+    line-height: 1.4;
+}
+
+.stream-game {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.stream-description {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+}
+
+.stream-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.stream-actions .btn {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.9rem;
+}
+
+.stream-actions .btn-primary {
+    background: var(--twitch);
+}
+
+.stream-actions .btn-primary:hover {
+    background: var(--twitch-hover);
+    box-shadow: 0 8px 25px rgba(145, 70, 255, 0.3);
+}
+
+/* Stream Dots Navigation */
+.stream-dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.stream-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: none;
+    background: var(--gray);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.stream-dot.active {
+    background: var(--primary);
+    transform: scale(1.3);
+}
+
+.stream-dot:hover {
+    background: var(--secondary);
+    transform: scale(1.2);
+}
+
+/* No Streams Message */
+.no-streams-message {
+    text-align: center;
+    padding: 3rem 2rem;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+}
+
+.no-streams-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.7;
+}
+
+.no-streams-message h3 {
+    font-size: 1.8rem;
+    color: var(--primary);
+    margin-bottom: 1rem;
+}
+
+.no-streams-message p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.offline-streamers {
+    margin-top: 2rem;
+}
+
+.offline-streamers h4 {
+    color: var(--secondary);
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+}
+
+.streamer-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.offline-streamer {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    transition: all 0.3s ease;
+}
+
+.offline-streamer:hover {
+    background: rgba(255, 255, 255, 0.08);
+    transform: translateY(-2px);
+}
+
+.streamer-avatar-small {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--twitch);
+    object-fit: cover;
+}
+
+.streamer-info-small {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.streamer-name-small {
+    font-weight: 600;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.follow-btn {
+    font-size: 0.8rem;
+    color: var(--twitch);
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.follow-btn:hover {
+    color: var(--twitch-hover);
+    text-decoration: underline;
 }
