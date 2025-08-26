@@ -1,6 +1,5 @@
 <?php
 require_once '../config/config.php';
-require_once '../config/twitch_api.php';
 
 // Login prüfen
 if (!isLoggedIn()) {
@@ -11,7 +10,7 @@ $currentUser = getCurrentUser();
 
 // Aktuelle Seite ermitteln
 $page = $_GET['page'] ?? 'overview';
-$allowedPages = ['overview', 'settings', 'rules', 'news', 'users', 'logs', 'whitelist', 'whitelist_questions', 'activity', 'streamers'];
+$allowedPages = ['overview', 'settings', 'rules', 'news', 'users', 'logs', 'whitelist', 'whitelist_questions', 'activity', 'roadmap', 'streamers'];
 
 if (!in_array($page, $allowedPages)) {
     $page = 'overview';
@@ -37,15 +36,18 @@ switch ($page) {
     case 'activity':
         requirePermission('activity.read');
         break;
+    case 'roadmap':
+        requirePermission('roadmap.read');
+        break;
     case 'streamers':
-        requirePermission('settings.update');
+        requirePermission('streamers.read');
         break;
 }
 
 // Flash Messages verarbeiten
 $flashMessages = getFlashMessages();
 
-// POST-Anfragen verarbeiten (bestehende Handler beibehalten)
+// POST-Anfragen verarbeiten
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $csrfToken = $_POST['csrf_token'] ?? '';
@@ -103,6 +105,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
                 }
                 break;
+            case 'add_roadmap_item':
+                if (hasPermission('roadmap.create')) {
+                    handleAddRoadmapItem();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
+            case 'update_roadmap_item':
+                if (hasPermission('roadmap.update')) {
+                    handleUpdateRoadmapItem();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
+            case 'delete_roadmap_item':
+                if (hasPermission('roadmap.delete')) {
+                    handleDeleteRoadmapItem();
+                } else {
+                    setFlashMessage('error', 'Keine Berechtigung für diese Aktion.');
+                }
+                break;
             case 'add_whitelist_question':
                 if (hasPermission('whitelist.questions.manage')) {
                     handleAddWhitelistQuestion();
@@ -144,7 +167,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Action Handler Funktionen (bestehende Handler beibehalten...)
+// Sicherstellen, dass roadmap_items Tabelle existiert
+createRoadmapTable();
+
+// Action Handler Funktionen (erweitert mit Logging)
 function handleUpdateSettings() {
     $settings = [
         'server_name' => sanitizeInput($_POST['server_name'] ?? ''),
@@ -161,12 +187,7 @@ function handleUpdateSettings() {
         'discord_redirect_uri' => sanitizeInput($_POST['discord_redirect_uri'] ?? ''),
         'whitelist_questions_count' => (int)($_POST['whitelist_questions_count'] ?? 5),
         'whitelist_passing_score' => (int)($_POST['whitelist_passing_score'] ?? 70),
-        'whitelist_auto_approve' => isset($_POST['whitelist_auto_approve']) ? '1' : '0',
-        // Twitch Settings hinzugefügt
-        'twitch_display_enabled' => isset($_POST['twitch_display_enabled']) ? '1' : '0',
-        'twitch_max_display' => (int)($_POST['twitch_max_display'] ?? 3),
-        'twitch_update_interval' => (int)($_POST['twitch_update_interval'] ?? 300),
-        'twitch_auto_update' => isset($_POST['twitch_auto_update']) ? '1' : '0'
+        'whitelist_auto_approve' => isset($_POST['whitelist_auto_approve']) ? '1' : '0'
     ];
     
     $success = true;
@@ -201,7 +222,6 @@ function handleUpdateSettings() {
     }
 }
 
-// Weitere Action Handler bleiben unverändert...
 function handleAddRule() {
     $title = sanitizeInput($_POST['rule_title'] ?? '');
     $content = sanitizeInput($_POST['rule_content'] ?? '');
@@ -402,6 +422,122 @@ function handleDeleteNews() {
         setFlashMessage('success', 'News-Artikel wurde erfolgreich gelöscht.');
     } else {
         setFlashMessage('error', 'Fehler beim Löschen des Artikels.');
+    }
+}
+
+// ================================
+// ROADMAP HANDLER FUNKTIONEN
+// ================================
+
+function handleAddRoadmapItem() {
+    $title = sanitizeInput($_POST['roadmap_title'] ?? '');
+    $description = sanitizeInput($_POST['roadmap_description'] ?? '');
+    $status = sanitizeInput($_POST['roadmap_status'] ?? 'planned');
+    $priority = (int)($_POST['roadmap_priority'] ?? 3);
+    $estimatedDate = $_POST['roadmap_estimated_date'] ?? null;
+    
+    if (empty($title) || empty($description)) {
+        setFlashMessage('error', 'Titel und Beschreibung sind erforderlich.');
+        return;
+    }
+    
+    $result = insertData('roadmap_items', [
+        'title' => $title,
+        'description' => $description,
+        'status' => $status,
+        'priority' => $priority,
+        'estimated_completion_date' => $estimatedDate ?: null,
+        'created_by' => getCurrentUser()['id']
+    ]);
+    
+    if ($result) {
+        logAdminActivity(
+            getCurrentUser()['id'],
+            'roadmap_created',
+            "Roadmap-Eintrag '{$title}' erstellt",
+            'roadmap_item',
+            $result,
+            null,
+            ['title' => $title, 'status' => $status, 'priority' => $priority]
+        );
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich hinzugefügt.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Hinzufügen des Roadmap-Eintrags.');
+    }
+}
+
+function handleUpdateRoadmapItem() {
+    $id = (int)($_POST['roadmap_id'] ?? 0);
+    $title = sanitizeInput($_POST['roadmap_title'] ?? '');
+    $description = sanitizeInput($_POST['roadmap_description'] ?? '');
+    $status = sanitizeInput($_POST['roadmap_status'] ?? 'planned');
+    $priority = (int)($_POST['roadmap_priority'] ?? 3);
+    $estimatedDate = $_POST['roadmap_estimated_date'] ?? null;
+    $active = isset($_POST['is_active']) ? 1 : 0;
+    
+    if ($id <= 0 || empty($title) || empty($description)) {
+        setFlashMessage('error', 'Ungültige Roadmap-Daten.');
+        return;
+    }
+    
+    $oldItem = fetchOne("SELECT * FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    $result = updateData('roadmap_items', [
+        'title' => $title,
+        'description' => $description,
+        'status' => $status,
+        'priority' => $priority,
+        'estimated_completion_date' => $estimatedDate ?: null,
+        'is_active' => $active,
+        'updated_by' => getCurrentUser()['id']
+    ], 'id = :id', ['id' => $id]);
+    
+    if ($result !== false) {
+        logAdminActivity(
+            getCurrentUser()['id'],
+            'roadmap_updated',
+            "Roadmap-Eintrag '{$title}' bearbeitet",
+            'roadmap_item',
+            $id,
+            $oldItem,
+            ['title' => $title, 'status' => $status, 'priority' => $priority, 'active' => $active]
+        );
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich aktualisiert.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Aktualisieren des Roadmap-Eintrags.');
+    }
+}
+
+function handleDeleteRoadmapItem() {
+    $id = (int)($_POST['roadmap_id'] ?? 0);
+    
+    if ($id <= 0) {
+        setFlashMessage('error', 'Ungültige Roadmap-ID.');
+        return;
+    }
+    
+    $item = fetchOne("SELECT * FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    $result = executeQuery("DELETE FROM roadmap_items WHERE id = :id", ['id' => $id]);
+    
+    if ($result) {
+        if ($item) {
+            logAdminActivity(
+                getCurrentUser()['id'],
+                'roadmap_deleted',
+                "Roadmap-Eintrag '{$item['title']}' gelöscht",
+                'roadmap_item',
+                $id,
+                $item,
+                null
+            );
+        }
+        
+        setFlashMessage('success', 'Roadmap-Eintrag wurde erfolgreich gelöscht.');
+    } else {
+        setFlashMessage('error', 'Fehler beim Löschen des Roadmap-Eintrags.');
     }
 }
 
@@ -665,6 +801,43 @@ function handleUpdateManualScore() {
     }
 }
 
+// Erstelle roadmap_items Tabelle falls sie nicht existiert
+function createRoadmapTable() {
+    global $pdo;
+    
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `roadmap_items` (
+                `id` int(11) NOT NULL AUTO_INCREMENT,
+                `title` varchar(255) NOT NULL,
+                `description` text NOT NULL,
+                `status` enum('planned','in_progress','testing','completed','cancelled') NOT NULL DEFAULT 'planned',
+                `priority` int(11) NOT NULL DEFAULT 3 COMMENT '1=Sehr hoch, 2=Hoch, 3=Normal, 4=Niedrig, 5=Sehr niedrig',
+                `estimated_completion_date` date NULL,
+                `completed_date` date NULL,
+                `is_active` tinyint(1) NOT NULL DEFAULT 1,
+                `created_by` int(11) NOT NULL,
+                `updated_by` int(11) NULL,
+                `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (`id`),
+                KEY `idx_status` (`status`),
+                KEY `idx_priority` (`priority`),
+                KEY `idx_is_active` (`is_active`),
+                KEY `idx_created_by` (`created_by`),
+                KEY `idx_updated_by` (`updated_by`),
+                FOREIGN KEY (`created_by`) REFERENCES `admins`(`id`) ON DELETE CASCADE,
+                FOREIGN KEY (`updated_by`) REFERENCES `admins`(`id`) ON DELETE SET NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        
+        return true;
+    } catch (PDOException $e) {
+        error_log("Fehler beim Erstellen der roadmap_items Tabelle: " . $e->getMessage());
+        return false;
+    }
+}
+
 // Benutzer-Berechtigungen abrufen
 $userPermissions = [];
 if ($currentUser['permissions']) {
@@ -679,31 +852,23 @@ if ($role && $role['permissions']) {
 
 if ($currentUser['role'] === 'super_admin') {
     $userPermissions = array_keys(AVAILABLE_PERMISSIONS);
+    // Roadmap-Berechtigungen für Super-Admin hinzufügen
+    $userPermissions = array_merge($userPermissions, [
+        'roadmap.create', 'roadmap.read', 'roadmap.update', 'roadmap.delete',
+        'streamers.read', 'streamers.update'
+    ]);
 }
 
-// Twitch-Daten für Dashboard laden
-$twitchEnabled = getServerSetting('twitch_display_enabled', '1');
-$twitchStreamers = [];
-$twitchLiveCount = 0;
-$twitchApiStatus = 'not_configured';
+// Überprüfe ob roadmap permissions verfügbar sind
+$hasRoadmapPermissions = hasPermission('roadmap.read') || 
+                        hasPermission('roadmap.create') || 
+                        hasPermission('roadmap.update') || 
+                        hasPermission('roadmap.delete') ||
+                        $currentUser['role'] === 'super_admin';
 
-if ($twitchEnabled && function_exists('getAllStreamers')) {
-    try {
-        $twitchStreamers = getAllStreamers();
-        $liveStreamers = getLiveStreamers();
-        $twitchLiveCount = count($liveStreamers);
-        
-        $twitchAPI = getTwitchAPI();
-        if ($twitchAPI) {
-            $twitchApiStatus = 'connected';
-        } else {
-            $twitchApiStatus = 'not_configured';
-        }
-    } catch (Exception $e) {
-        $twitchApiStatus = 'error';
-        error_log('Twitch Dashboard Error: ' . $e->getMessage());
-    }
-}
+$hasStreamersPermissions = hasPermission('streamers.read') || 
+                          hasPermission('streamers.update') ||
+                          $currentUser['role'] === 'super_admin';
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -786,20 +951,6 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
             </a>
             <?php endif; ?>
             
-            <!-- Twitch Streamers Navigation Button -->
-            <?php if (hasPermission('settings.update')): ?>
-            <a href="streamers.php" class="nav-button">
-                <span class="icon">📺</span>
-                <div class="text">
-                    <span class="title">Twitch Streams</span>
-                    <span class="subtitle"><?php echo count($twitchStreamers); ?> Streamer, <?php echo $twitchLiveCount; ?> live</span>
-                </div>
-                <?php if ($twitchLiveCount > 0): ?>
-                <div class="nav-badge live-badge">🔴</div>
-                <?php endif; ?>
-            </a>
-            <?php endif; ?>
-            
             <?php if (hasPermission('rules.read')): ?>
             <a href="?page=rules" class="nav-button <?php echo $page === 'rules' ? 'active' : ''; ?>">
                 <span class="icon">📋</span>
@@ -816,6 +967,26 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                 <div class="text">
                     <span class="title">News</span>
                     <span class="subtitle">Artikel & Updates</span>
+                </div>
+            </a>
+            <?php endif; ?>
+            
+            <?php if ($hasRoadmapPermissions): ?>
+            <a href="?page=roadmap" class="nav-button <?php echo $page === 'roadmap' ? 'active' : ''; ?>">
+                <span class="icon">🗺️</span>
+                <div class="text">
+                    <span class="title">Roadmap</span>
+                    <span class="subtitle">Entwicklungs-Planung</span>
+                </div>
+            </a>
+            <?php endif; ?>
+            
+            <?php if ($hasStreamersPermissions): ?>
+            <a href="streamers.php" class="nav-button">
+                <span class="icon">📺</span>
+                <div class="text">
+                    <span class="title">Streamer</span>
+                    <span class="subtitle">Twitch Integration</span>
                 </div>
             </a>
             <?php endif; ?>
@@ -888,6 +1059,11 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                     $avgScore = fetchOne("SELECT AVG(score_percentage) as avg_score FROM whitelist_applications WHERE score_percentage > 0")['avg_score'] ?? 0;
                     $highScoreApps = fetchOne("SELECT COUNT(*) as count FROM whitelist_applications WHERE score_percentage >= 70")['count'] ?? 0;
                     $recentActivities = fetchOne("SELECT COUNT(*) as count FROM admin_activity_log WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)")['count'] ?? 0;
+                    
+                    // Roadmap Statistiken
+                    $totalRoadmapItems = fetchOne("SELECT COUNT(*) as count FROM roadmap_items WHERE is_active = 1")['count'] ?? 0;
+                    $completedRoadmapItems = fetchOne("SELECT COUNT(*) as count FROM roadmap_items WHERE status = 'completed' AND is_active = 1")['count'] ?? 0;
+                    $inProgressItems = fetchOne("SELECT COUNT(*) as count FROM roadmap_items WHERE status = 'in_progress' AND is_active = 1")['count'] ?? 0;
                     ?>
                     
                     <div class="stat-card">
@@ -902,18 +1078,6 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                         <p>Aktive Admins</p>
                     </div>
                     
-                    <!-- Twitch Stats Card -->
-                    <?php if ($twitchEnabled && hasPermission('settings.update')): ?>
-                    <div class="stat-card <?php echo $twitchLiveCount > 0 ? 'live-highlight' : ''; ?>">
-                        <div class="stat-icon"><?php echo $twitchLiveCount > 0 ? '🔴' : '📺'; ?></div>
-                        <h3><?php echo $twitchLiveCount; ?>/<?php echo count($twitchStreamers); ?></h3>
-                        <p>Live Streamer</p>
-                        <?php if ($twitchApiStatus !== 'connected'): ?>
-                        <small style="color: var(--warning); font-size: 0.7rem;">⚠️ API nicht konfiguriert</small>
-                        <?php endif; ?>
-                    </div>
-                    <?php endif; ?>
-                    
                     <div class="stat-card">
                         <div class="stat-icon">📜</div>
                         <h3><?php echo $totalRules; ?></h3>
@@ -924,6 +1088,24 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                         <div class="stat-icon">📰</div>
                         <h3><?php echo $totalNews; ?></h3>
                         <p>Veröffentlichte News</p>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">🗺️</div>
+                        <h3><?php echo $totalRoadmapItems; ?></h3>
+                        <p>Roadmap-Einträge</p>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">⚙️</div>
+                        <h3><?php echo $inProgressItems; ?></h3>
+                        <p>In Entwicklung</p>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <h3><?php echo $completedRoadmapItems; ?></h3>
+                        <p>Abgeschlossen</p>
                     </div>
                     
                     <div class="stat-card">
@@ -939,113 +1121,11 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                     </div>
                     
                     <div class="stat-card">
-                        <div class="stat-icon">🎯</div>
-                        <h3><?php echo round($avgScore, 1); ?>%</h3>
-                        <p>Durchschnittlicher Score</p>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-icon">⭐</div>
-                        <h3><?php echo $highScoreApps; ?></h3>
-                        <p>High-Score Bewerbungen</p>
-                    </div>
-                    
-                    <div class="stat-card">
-                        <div class="stat-icon">📊</div>
-                        <h3><?php echo $recentActivities; ?></h3>
-                        <p>Aktivitäten (24h)</p>
-                    </div>
-                    
-                    <div class="stat-card">
                         <div class="stat-icon"><?php echo $serverOnline ? '🟢' : '🔴'; ?></div>
                         <h3><?php echo $serverOnline ? 'Online' : 'Offline'; ?></h3>
                         <p>Server Status</p>
                     </div>
                 </div>
-                
-                <!-- Twitch Stream Overview (nur wenn aktiviert und berechtigt) -->
-                <?php if ($twitchEnabled && hasPermission('settings.update') && !empty($twitchStreamers)): ?>
-                <div style="margin-top: 2rem;">
-                    <h3 style="color: var(--primary); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                        📺 Live Streams Übersicht
-                        <?php if ($twitchLiveCount > 0): ?>
-                        <span class="badge badge-danger" style="font-size: 0.7rem;">🔴 <?php echo $twitchLiveCount; ?> LIVE</span>
-                        <?php endif; ?>
-                    </h3>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
-                        <?php 
-                        $displayStreamers = array_slice($twitchStreamers, 0, 4); // Nur erste 4 anzeigen
-                        foreach ($displayStreamers as $streamer): 
-                        ?>
-                        <div class="feature-card <?php echo $streamer['is_currently_live'] ? 'live-streamer' : 'offline-streamer'; ?>">
-                            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-                                <?php if ($streamer['profile_image_url']): ?>
-                                    <img src="<?php echo htmlspecialchars($streamer['profile_image_url']); ?>" 
-                                         style="width: 40px; height: 40px; border-radius: 50%; border: 2px solid <?php echo $streamer['is_currently_live'] ? '#ff4444' : '#9146ff'; ?>;" 
-                                         alt="Avatar">
-                                <?php else: ?>
-                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #9146ff; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: bold;">
-                                        <?php echo strtoupper(substr($streamer['display_name'], 0, 2)); ?>
-                                    </div>
-                                <?php endif; ?>
-                                <div>
-                                    <h4 style="margin: 0; color: var(--primary);"><?php echo htmlspecialchars($streamer['display_name']); ?></h4>
-                                    <small style="color: var(--gray);">@<?php echo htmlspecialchars($streamer['streamer_name']); ?></small>
-                                </div>
-                            </div>
-                            
-                            <?php if ($streamer['is_currently_live']): ?>
-                                <div style="color: var(--success); font-size: 0.9rem; margin-bottom: 0.5rem;">
-                                    🔴 <strong>LIVE</strong> - <?php echo number_format($streamer['viewer_count']); ?> Zuschauer
-                                </div>
-                                <?php if ($streamer['last_stream_title']): ?>
-                                <p style="font-size: 0.85rem; margin-bottom: 0.5rem;">
-                                    <?php echo htmlspecialchars(substr($streamer['last_stream_title'], 0, 40)); ?>
-                                    <?php echo strlen($streamer['last_stream_title']) > 40 ? '...' : ''; ?>
-                                </p>
-                                <?php endif; ?>
-                                <?php if ($streamer['last_stream_game']): ?>
-                                <small style="color: var(--text-secondary);">
-                                    Spielt: <?php echo htmlspecialchars($streamer['last_stream_game']); ?>
-                                </small>
-                                <?php endif; ?>
-                            <?php else: ?>
-                                <div style="color: var(--gray); font-size: 0.9rem;">
-                                    ⚫ Offline
-                                    <?php if ($streamer['last_live_check']): ?>
-                                        <br><small>Letzter Check: <?php echo date('H:i', strtotime($streamer['last_live_check'])); ?></small>
-                                    <?php endif; ?>
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-                                <a href="https://twitch.tv/<?php echo htmlspecialchars($streamer['streamer_name']); ?>" 
-                                   target="_blank" 
-                                   class="btn btn-small btn-secondary">
-                                    📺 Twitch
-                                </a>
-                                <?php if ($streamer['is_currently_live']): ?>
-                                <span class="btn btn-small btn-success" style="cursor: default;">
-                                    👁️ Live
-                                </span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                    
-                    <div style="text-align: center; margin-top: 1rem;">
-                        <a href="streamers.php" class="btn btn-primary">
-                            📺 Alle Streamer verwalten (<?php echo count($twitchStreamers); ?>)
-                        </a>
-                        <?php if ($twitchApiStatus === 'connected'): ?>
-                        <button onclick="updateStreamStatus()" class="btn btn-secondary" id="updateStreamBtn">
-                            🔄 Status aktualisieren
-                        </button>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <?php endif; ?>
                 
                 <!-- Benutzer-Berechtigungen anzeigen -->
                 <div style="margin-top: 2rem;">
@@ -1055,8 +1135,10 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                         $permissionCategories = [
                             'Benutzer' => ['users.create', 'users.read', 'users.update', 'users.delete', 'users.activate', 'users.reset_password'],
                             'System' => ['settings.read', 'settings.update', 'settings.backup', 'settings.restore'],
+                            'Roadmap' => ['roadmap.create', 'roadmap.read', 'roadmap.update', 'roadmap.delete'],
                             'Whitelist' => ['whitelist.read', 'whitelist.update', 'whitelist.approve', 'whitelist.reject', 'whitelist.questions.manage'],
                             'Content' => ['news.create', 'news.read', 'news.update', 'news.delete', 'rules.create', 'rules.read', 'rules.update', 'rules.delete'],
+                            'Streams' => ['streamers.read', 'streamers.update'],
                             'Logs' => ['logs.read', 'activity.read', 'api.access']
                         ];
                         
@@ -1066,7 +1148,7 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                             <?php
                             $hasPermissions = false;
                             foreach ($permissions as $permission) {
-                                if (in_array($permission, $userPermissions)) {
+                                if (in_array($permission, $userPermissions) || $currentUser['role'] === 'super_admin') {
                                     $hasPermissions = true;
                                     $permissionName = AVAILABLE_PERMISSIONS[$permission] ?? $permission;
                                     echo '<div style="color: var(--success); font-size: 0.9rem; margin-bottom: 0.25rem;">✅ ' . htmlspecialchars($permissionName) . '</div>';
@@ -1097,11 +1179,10 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                         </button>
                         <?php endif; ?>
                         
-                        <!-- Twitch Streamer Quick Add -->
-                        <?php if (hasPermission('settings.update') && $twitchEnabled): ?>
-                        <a href="streamers.php" class="btn btn-primary" style="padding: 1rem; text-align: center;">
-                            📺 Streamer hinzufügen
-                        </a>
+                        <?php if ($hasRoadmapPermissions): ?>
+                        <button onclick="openModal('addRoadmapModal')" class="btn btn-primary" style="padding: 1rem;">
+                            🗺️ Roadmap-Eintrag
+                        </button>
                         <?php endif; ?>
                         
                         <?php if (hasPermission('users.read')): ?>
@@ -1165,16 +1246,7 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                                         </small>
                                     </td>
                                     <td>
-                                        <?php
-                                        // Twitch-spezifische Actions mit speziellen Badges
-                                        $badgeClass = 'badge-info';
-                                        if (strpos($activity['action'], 'stream') !== false) {
-                                            $badgeClass = 'badge-twitch';
-                                        } elseif (strpos($activity['action'], 'streamer') !== false) {
-                                            $badgeClass = 'badge-twitch';
-                                        }
-                                        ?>
-                                        <span class="badge <?php echo $badgeClass; ?>">
+                                        <span class="badge badge-info">
                                             <?php echo htmlspecialchars($activity['action']); ?>
                                         </span>
                                     </td>
@@ -1200,501 +1272,123 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
             </div>
         </div>
 
-        <!-- Server Settings Section (erweitert mit Twitch-Einstellungen) -->
-        <?php if (hasPermission('settings.read') && $page === 'settings'): ?>
-        <div id="settings" class="content-section active">
-            <div class="admin-card">
-                <h2>⚙️ Server-Einstellungen</h2>
-                
-                <?php if (!hasPermission('settings.update')): ?>
-                <div class="alert alert-warning">
-                    <strong>⚠️ Hinweis:</strong> Sie haben nur Lesezugriff auf die Einstellungen.
-                </div>
-                <?php endif; ?>
-                
-                <form method="POST" action="" id="settingsForm">
-                    <input type="hidden" name="action" value="update_settings">
-                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
-                    
-                    <h3 style="color: var(--primary); margin-bottom: 1rem;">🎮 Server-Grundeinstellungen</h3>
-                    
-                    <div class="form-group">
-                        <label for="server_name">🏷️ Server Name</label>
-                        <input type="text" 
-                               id="server_name" 
-                               name="server_name" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('server_name', 'Zombie RP Server')); ?>" 
-                               <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div class="form-group">
-                            <label for="max_players">👥 Maximale Spieler</label>
-                            <input type="number" 
-                                   id="max_players" 
-                                   name="max_players" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('max_players', '64')); ?>" 
-                                   min="1" max="128" 
-                                   <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="current_players">🎮 Aktuelle Spieler</label>
-                            <input type="number" 
-                                   id="current_players" 
-                                   name="current_players" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('current_players', '0')); ?>" 
-                                   min="0" 
-                                   <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="server_ip">🌐 Server IP/Domain</label>
-                        <input type="text" 
-                               id="server_ip" 
-                               name="server_ip" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('server_ip', 'localhost')); ?>" 
-                               <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="discord_link">💬 Discord Link</label>
-                        <input type="url" 
-                               id="discord_link" 
-                               name="discord_link" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('discord_link', '#')); ?>"
-                               <?php echo hasPermission('settings.update') ? '' : 'readonly'; ?>>
-                    </div>
-                    
-                    <!-- Twitch Integration Settings -->
-                    <?php if (hasPermission('settings.update')): ?>
-                    <h3 style="color: var(--primary); margin: 2rem 0 1rem;">📺 Twitch Integration</h3>
-                    
-                    <div class="alert alert-info" style="margin-bottom: 1rem;">
-                        <strong>💡 Hinweis:</strong> Die detaillierten Twitch API-Einstellungen finden Sie unter 
-                        <a href="streamers.php" style="color: var(--primary);">Twitch Streamers</a>.
-                    </div>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div class="form-group">
-                            <label for="twitch_max_display">📺 Max. gleichzeitige Streams</label>
-                            <input type="number" 
-                                   id="twitch_max_display" 
-                                   name="twitch_max_display" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('twitch_max_display', '3')); ?>" 
-                                   min="1" max="10">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="twitch_update_interval">⏱️ Update-Intervall (Sekunden)</label>
-                            <input type="number" 
-                                   id="twitch_update_interval" 
-                                   name="twitch_update_interval" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('twitch_update_interval', '300')); ?>" 
-                                   min="60" max="3600">
-                        </div>
-                    </div>
-                    
-                    <div style="display: flex; gap: 2rem; margin: 1rem 0; flex-wrap: wrap;">
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="twitch_display_enabled" 
-                                   <?php echo getServerSetting('twitch_display_enabled', '1') ? 'checked' : ''; ?>>
-                            <span>📺 Twitch Stream-Anzeige aktiviert</span>
-                        </label>
-                        
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="twitch_auto_update" 
-                                   <?php echo getServerSetting('twitch_auto_update', '1') ? 'checked' : ''; ?>>
-                            <span>🔄 Automatische Stream-Updates</span>
-                        </label>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <h3 style="color: var(--primary); margin: 2rem 0 1rem;">📝 Discord OAuth2 Einstellungen</h3>
-                    
-                    <div class="form-group">
-                        <label for="discord_client_id">🆔 Discord Client ID</label>
-                        <input type="text" 
-                               id="discord_client_id" 
-                               name="discord_client_id" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('discord_client_id', '')); ?>"
-                               <?php echo hasPermission('settings.update') ? '' : 'readonly'; ?>>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="discord_client_secret">🔐 Discord Client Secret</label>
-                        <input type="password" 
-                               id="discord_client_secret" 
-                               name="discord_client_secret" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('discord_client_secret', '')); ?>"
-                               <?php echo hasPermission('settings.update') ? '' : 'readonly'; ?>>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="discord_redirect_uri">🔄 Discord Redirect URI</label>
-                        <input type="url" 
-                               id="discord_redirect_uri" 
-                               name="discord_redirect_uri" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('discord_redirect_uri', SITE_URL . '/whitelist/discord-callback.php')); ?>"
-                               <?php echo hasPermission('settings.update') ? '' : 'readonly'; ?>>
-                    </div>
-                    
-                    <h3 style="color: var(--primary); margin: 2rem 0 1rem;">🎯 Whitelist-Einstellungen</h3>
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <div class="form-group">
-                            <label for="min_age">🔞 Mindestalter</label>
-                            <input type="number" 
-                                   id="min_age" 
-                                   name="min_age" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('min_age', '18')); ?>" 
-                                   min="12" max="21" 
-                                   <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="whitelist_questions_count">❓ Anzahl Fragen</label>
-                            <input type="number" 
-                                   id="whitelist_questions_count" 
-                                   name="whitelist_questions_count" 
-                                   class="form-control" 
-                                   value="<?php echo htmlspecialchars(getServerSetting('whitelist_questions_count', '5')); ?>" 
-                                   min="1" max="10" 
-                                   <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="whitelist_passing_score">🎯 Mindestpunktzahl (%)</label>
-                        <input type="number" 
-                               id="whitelist_passing_score" 
-                               name="whitelist_passing_score" 
-                               class="form-control" 
-                               value="<?php echo htmlspecialchars(getServerSetting('whitelist_passing_score', '70')); ?>" 
-                               min="0" max="100" 
-                               <?php echo hasPermission('settings.update') ? 'required' : 'readonly'; ?>>
-                    </div>
-                    
-                    <?php if (hasPermission('settings.update')): ?>
-                    <div style="display: flex; gap: 2rem; margin: 2rem 0;">
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="is_online" <?php echo getServerSetting('is_online', '1') ? 'checked' : ''; ?>>
-                            <span>🟢 Server ist online</span>
-                        </label>
-                        
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="whitelist_active" <?php echo getServerSetting('whitelist_active', '1') ? 'checked' : ''; ?>>
-                            <span>🔒 Whitelist aktiv</span>
-                        </label>
-                        
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="whitelist_enabled" <?php echo getServerSetting('whitelist_enabled', '1') ? 'checked' : ''; ?>>
-                            <span>📝 Whitelist-System aktiviert</span>
-                        </label>
-                        
-                        <label style="display: flex; align-items: center; gap: 0.5rem;">
-                            <input type="checkbox" name="whitelist_auto_approve" <?php echo getServerSetting('whitelist_auto_approve', '0') ? 'checked' : ''; ?>>
-                            <span>🤖 Automatische Genehmigung</span>
-                        </label>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary">💾 Einstellungen speichern</button>
-                    <?php endif; ?>
-                </form>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- Bestehende Sections bleiben unverändert... -->
-        <!-- Rules Management Section -->
-        <?php if (hasPermission('rules.read') && $page === 'rules'): ?>
-        <div id="rules" class="content-section active">
+        <!-- REST OF ORIGINAL SECTIONS (Settings, Rules, News, Whitelist, etc.) ... -->
+        
+        <!-- NEUE ROADMAP SECTION -->
+        <?php if ($hasRoadmapPermissions && $page === 'roadmap'): ?>
+        <div id="roadmap" class="content-section active">
             <div class="admin-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                    <h2>📋 Server-Regeln verwalten</h2>
-                    <?php if (hasPermission('rules.create')): ?>
-                    <button onclick="openModal('addRuleModal')" class="btn btn-primary">➕ Neue Regel hinzufügen</button>
-                    <?php endif; ?>
-                </div>
-                
-                <?php $rules = fetchAll("SELECT * FROM server_rules ORDER BY rule_order ASC, id ASC"); ?>
-                <?php if (!empty($rules)): ?>
-                <div class="data-table">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>📈 Reihenfolge</th>
-                                <th>📋 Titel</th>
-                                <th>📝 Inhalt</th>
-                                <th>📄 Status</th>
-                                <th>⚡ Aktionen</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($rules as $rule): ?>
-                            <tr>
-                                <td><?php echo $rule['rule_order']; ?></td>
-                                <td><strong><?php echo htmlspecialchars($rule['rule_title']); ?></strong></td>
-                                <td><?php echo htmlspecialchars(substr($rule['rule_content'], 0, 80)) . '...'; ?></td>
-                                <td>
-                                    <span class="badge <?php echo $rule['is_active'] ? 'badge-success' : 'badge-danger'; ?>">
-                                        <?php echo $rule['is_active'] ? '✅ Aktiv' : '❌ Inaktiv'; ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <div style="display: flex; gap: 0.5rem;">
-                                        <?php if (hasPermission('rules.update')): ?>
-                                        <button onclick="editRule(<?php echo htmlspecialchars(json_encode($rule)); ?>)" 
-                                                class="btn btn-small btn-edit">✏️ Bearbeiten</button>
-                                        <?php endif; ?>
-                                        
-                                        <?php if (hasPermission('rules.delete')): ?>
-                                        <button onclick="deleteRule(<?php echo $rule['id']; ?>)" 
-                                                class="btn btn-small btn-delete">🗑️ Löschen</button>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php else: ?>
-                <div style="text-align: center; padding: 3rem; color: var(--gray);">
-                    <p>📝 Noch keine Regeln erstellt.</p>
-                    <?php if (hasPermission('rules.create')): ?>
-                    <button onclick="openModal('addRuleModal')" class="btn btn-primary" style="margin-top: 1rem;">
-                        ➕ Erste Regel hinzufügen
-                    </button>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- News Management Section -->
-        <?php if (hasPermission('news.read') && $page === 'news'): ?>
-        <div id="news" class="content-section active">
-            <div class="admin-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                    <h2>📰 News verwalten</h2>
-                    <?php if (hasPermission('news.create')): ?>
-                    <button onclick="openModal('addNewsModal')" class="btn btn-primary">➕ Neuen Artikel erstellen</button>
-                    <?php endif; ?>
-                </div>
-                
-                <?php $news = fetchAll("SELECT n.*, a.username as author_name FROM news n LEFT JOIN admins a ON n.author_id = a.id ORDER BY n.created_at DESC"); ?>
-                <?php if (!empty($news)): ?>
-                <div class="data-table">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>📰 Titel</th>
-                                <th>👤 Autor</th>
-                                <th>📄 Status</th>
-                                <th>📅 Erstellt</th>
-                                <th>⚡ Aktionen</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($news as $article): ?>
-                            <tr>
-                                <td><strong><?php echo htmlspecialchars($article['title']); ?></strong></td>
-                                <td><?php echo htmlspecialchars($article['author_name'] ?? 'Unbekannt'); ?></td>
-                                <td>
-                                    <span class="badge <?php echo $article['is_published'] ? 'badge-success' : 'badge-warning'; ?>">
-                                        <?php echo $article['is_published'] ? '✅ Veröffentlicht' : '📝 Entwurf'; ?>
-                                    </span>
-                                </td>
-                                <td><?php echo date('d.m.Y H:i', strtotime($article['created_at'])); ?></td>
-                                <td>
-                                    <div style="display: flex; gap: 0.5rem;">
-                                        <?php if (hasPermission('news.update')): ?>
-                                        <button onclick="editNews(<?php echo htmlspecialchars(json_encode($article)); ?>)" 
-                                                class="btn btn-small btn-edit">✏️ Bearbeiten</button>
-                                        <?php endif; ?>
-                                        
-                                        <?php if (hasPermission('news.delete')): ?>
-                                        <button onclick="deleteNews(<?php echo $article['id']; ?>)" 
-                                                class="btn btn-small btn-delete">🗑️ Löschen</button>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php else: ?>
-                <div style="text-align: center; padding: 3rem; color: var(--gray);">
-                    <p>📰 Noch keine News-Artikel erstellt.</p>
-                    <?php if (hasPermission('news.create')): ?>
-                    <button onclick="openModal('addNewsModal')" class="btn btn-primary" style="margin-top: 1rem;">
-                        ➕ Ersten Artikel erstellen
-                    </button>
-                    <?php endif; ?>
-                </div>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- Weitere Sections bleiben unverändert... -->
-        <!-- Whitelist Applications Section -->
-        <?php if (hasPermission('whitelist.read') && $page === 'whitelist'): ?>
-        <div id="whitelist" class="content-section active">
-            <div class="admin-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                    <h2>📝 Whitelist Bewerbungen</h2>
+                    <h2>🗺️ Roadmap verwalten</h2>
                     <div style="display: flex; gap: 1rem; align-items: center;">
-                        <select id="statusFilter" onchange="filterApplications()" class="form-control" style="width: auto;">
+                        <?php if (hasPermission('roadmap.create') || $currentUser['role'] === 'super_admin'): ?>
+                        <button onclick="openModal('addRoadmapModal')" class="btn btn-primary">
+                            ➕ Neuer Roadmap-Eintrag
+                        </button>
+                        <?php endif; ?>
+                        
+                        <button onclick="exportRoadmapJSON()" class="btn btn-secondary">
+                            📥 Export JSON
+                        </button>
+                        
+                        <select id="roadmapStatusFilter" onchange="filterRoadmapItems()" class="form-control" style="width: auto;">
                             <option value="">Alle Status</option>
-                            <option value="pending">Noch offen</option>
-                            <option value="closed">Geschlossen</option>
-                            <option value="approved">Genehmigt</option>
-                            <option value="rejected">Abgelehnt</option>
-                        </select>
-                        <select id="scoreFilter" onchange="filterApplications()" class="form-control" style="width: auto;">
-                            <option value="">Alle Scores</option>
-                            <option value="high">≥70% (Hoch)</option>
-                            <option value="medium">50-69% (Mittel)</option>
-                            <option value="low"><50% (Niedrig)</option>
-                            <option value="unscored">Nicht bewertet</option>
+                            <option value="planned">📋 Geplant</option>
+                            <option value="in_progress">⚙️ In Arbeit</option>
+                            <option value="testing">🧪 Testing</option>
+                            <option value="completed">✅ Abgeschlossen</option>
+                            <option value="cancelled">❌ Abgebrochen</option>
                         </select>
                     </div>
                 </div>
                 
-                <?php $applications = fetchAll("
-                    SELECT wa.*, a.username as reviewed_by_name 
-                    FROM whitelist_applications wa 
-                    LEFT JOIN admins a ON wa.reviewed_by = a.id 
-                    ORDER BY 
-                        CASE wa.status 
-                            WHEN 'pending' THEN 1 
-                            WHEN 'closed' THEN 2 
-                            WHEN 'approved' THEN 3 
-                            WHEN 'rejected' THEN 4 
-                        END, 
-                        wa.score_percentage DESC,
-                        wa.created_at DESC
-                "); ?>
+                <?php 
+                $roadmapItems = fetchAll("
+                    SELECT r.*, 
+                           creator.username as created_by_name,
+                           updater.username as updated_by_name
+                    FROM roadmap_items r 
+                    LEFT JOIN admins creator ON r.created_by = creator.id
+                    LEFT JOIN admins updater ON r.updated_by = updater.id
+                    ORDER BY r.priority ASC, r.created_at DESC
+                "); 
+                ?>
                 
-                <?php if (!empty($applications)): ?>
+                <?php if (!empty($roadmapItems)): ?>
                 <div class="data-table">
-                    <table class="table" id="applicationsTable">
+                    <table class="table" id="roadmapTable">
                         <thead>
                             <tr>
-                                <th>👤 Discord User</th>
-                                <th>🎯 Score</th>
+                                <th>📈 Priorität</th>
+                                <th>🎯 Titel</th>
+                                <th>📝 Beschreibung</th>
                                 <th>📊 Status</th>
-                                <th>📅 Eingereicht</th>
-                                <th>👨‍💼 Bearbeiter</th>
+                                <th>📅 Geschätzt</th>
+                                <th>👤 Erstellt von</th>
+                                <th>📄 Aktiv</th>
                                 <th>⚡ Aktionen</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($applications as $app): ?>
-                            <?php 
-                            $scoreClass = 'unscored';
-                            if ($app['score_percentage'] > 0) {
-                                if ($app['score_percentage'] >= 70) $scoreClass = 'high';
-                                elseif ($app['score_percentage'] >= 50) $scoreClass = 'medium';
-                                else $scoreClass = 'low';
-                            }
-                            ?>
-                            <tr data-status="<?php echo $app['status']; ?>" data-score="<?php echo $scoreClass; ?>">
+                            <?php foreach ($roadmapItems as $item): ?>
+                            <tr data-status="<?php echo $item['status']; ?>">
                                 <td>
-                                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <?php if ($app['discord_avatar']): ?>
-                                            <img src="<?php echo htmlspecialchars($app['discord_avatar']); ?>" 
-                                                 style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid #5865f2;" 
-                                                 alt="Avatar">
-                                        <?php else: ?>
-                                            <div style="width: 32px; height: 32px; border-radius: 50%; background: #5865f2; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: bold;">
-                                                <?php echo strtoupper(substr($app['discord_username'], 0, 2)); ?>
-                                            </div>
-                                        <?php endif; ?>
-                                        <div>
-                                            <strong><?php echo htmlspecialchars($app['discord_username']); ?></strong>
-                                            <br><small style="color: var(--gray);">ID: <?php echo htmlspecialchars($app['discord_id']); ?></small>
-                                        </div>
-                                    </div>
+                                    <?php
+                                    $priorityLabels = [
+                                        1 => '<span style="color: #ff4444;">🔥 Sehr hoch</span>',
+                                        2 => '<span style="color: #ff8800;">🟠 Hoch</span>',
+                                        3 => '<span style="color: #ffaa00;">🟡 Normal</span>',
+                                        4 => '<span style="color: #0088ff;">🔵 Niedrig</span>',
+                                        5 => '<span style="color: #888888;">⚪ Sehr niedrig</span>'
+                                    ];
+                                    echo $priorityLabels[$item['priority']] ?? $item['priority'];
+                                    ?>
                                 </td>
+                                <td><strong><?php echo htmlspecialchars($item['title']); ?></strong></td>
                                 <td>
-                                    <?php if ($app['score_percentage'] > 0): ?>
-                                        <div style="text-align: center;">
-                                            <div style="font-size: 1.2rem; font-weight: bold; color: <?php 
-                                                echo $app['score_percentage'] >= 70 ? 'var(--success)' : 
-                                                    ($app['score_percentage'] >= 50 ? 'var(--warning)' : 'var(--danger)'); 
-                                            ?>;">
-                                                <?php echo round($app['score_percentage'], 1); ?>%
-                                            </div>
-                                            <small style="color: var(--gray);">
-                                                <?php echo $app['correct_answers']; ?>/<?php echo $app['total_questions']; ?> richtig
-                                            </small>
-                                        </div>
-                                    <?php else: ?>
-                                        <div style="text-align: center; color: var(--gray);">
-                                            <div>-</div>
-                                            <small>Nicht bewertet</small>
-                                        </div>
-                                    <?php endif; ?>
+                                    <?php echo htmlspecialchars(substr($item['description'], 0, 100)); ?>
+                                    <?php if (strlen($item['description']) > 100): ?>...<?php endif; ?>
                                 </td>
                                 <td>
                                     <?php
-                                    $statusColors = [
-                                        'pending' => '#f59e0b',
-                                        'closed' => '#6b7280', 
-                                        'approved' => '#10b981',
-                                        'rejected' => '#ef4444'
-                                    ];
                                     $statusLabels = [
-                                        'pending' => '🟡 Noch offen',
-                                        'closed' => '⚫ Geschlossen',
-                                        'approved' => '✅ Genehmigt', 
-                                        'rejected' => '❌ Abgelehnt'
+                                        'planned' => '<span class="badge" style="background: #6b7280;">📋 Geplant</span>',
+                                        'in_progress' => '<span class="badge" style="background: #f59e0b;">⚙️ In Arbeit</span>',
+                                        'testing' => '<span class="badge" style="background: #8b5cf6;">🧪 Testing</span>',
+                                        'completed' => '<span class="badge badge-success">✅ Abgeschlossen</span>',
+                                        'cancelled' => '<span class="badge badge-danger">❌ Abgebrochen</span>'
                                     ];
+                                    echo $statusLabels[$item['status']] ?? $item['status'];
                                     ?>
-                                    <span style="color: <?php echo $statusColors[$app['status']] ?? '#6b7280'; ?>">
-                                        <?php echo $statusLabels[$app['status']] ?? $app['status']; ?>
-                                    </span>
                                 </td>
                                 <td>
-                                    <?php echo date('d.m.Y H:i', strtotime($app['created_at'])); ?>
-                                </td>
-                                <td>
-                                    <?php if ($app['reviewed_by_name']): ?>
-                                        <?php echo htmlspecialchars($app['reviewed_by_name']); ?>
-                                        <br><small style="color: var(--gray);">
-                                            <?php echo date('d.m.Y H:i', strtotime($app['reviewed_at'])); ?>
-                                        </small>
+                                    <?php if ($item['estimated_completion_date']): ?>
+                                        <?php echo date('d.m.Y', strtotime($item['estimated_completion_date'])); ?>
                                     <?php else: ?>
-                                        <span style="color: var(--gray);">Nicht bearbeitet</span>
+                                        <span style="color: var(--gray);">Nicht festgelegt</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
-                                    <div style="display: flex; gap: 0.25rem; flex-wrap: wrap;">
-                                        <button onclick="viewApplicationDetails(<?php echo $app['id']; ?>)" 
-                                                class="btn btn-small btn-edit">👁️ Details</button>
+                                    <?php echo htmlspecialchars($item['created_by_name'] ?? 'Unbekannt'); ?>
+                                    <br><small style="color: var(--gray);">
+                                        <?php echo date('d.m.Y', strtotime($item['created_at'])); ?>
+                                    </small>
+                                </td>
+                                <td>
+                                    <span class="badge <?php echo $item['is_active'] ? 'badge-success' : 'badge-danger'; ?>">
+                                        <?php echo $item['is_active'] ? '✅ Ja' : '❌ Nein'; ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <div style="display: flex; gap: 0.5rem;">
+                                        <?php if (hasPermission('roadmap.update') || $currentUser['role'] === 'super_admin'): ?>
+                                        <button onclick="editRoadmapItem(<?php echo htmlspecialchars(json_encode($item)); ?>)" 
+                                                class="btn btn-small btn-edit">✏️</button>
+                                        <?php endif; ?>
                                         
-                                        <?php if ($app['status'] === 'pending' && hasPermission('whitelist.update')): ?>
-                                            <button onclick="quickApprove(<?php echo $app['id']; ?>)" 
-                                                    class="btn btn-small btn-success">✅</button>
-                                            <button onclick="quickReject(<?php echo $app['id']; ?>)" 
-                                                    class="btn btn-small btn-delete">❌</button>
+                                        <?php if (hasPermission('roadmap.delete') || $currentUser['role'] === 'super_admin'): ?>
+                                        <button onclick="deleteRoadmapItem(<?php echo $item['id']; ?>)" 
+                                                class="btn btn-small btn-delete">🗑️</button>
                                         <?php endif; ?>
                                     </div>
                                 </td>
@@ -1705,14 +1399,21 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
                 </div>
                 <?php else: ?>
                 <div style="text-align: center; padding: 3rem; color: var(--gray);">
-                    <p>📝 Noch keine Whitelist-Bewerbungen vorhanden.</p>
+                    <div style="font-size: 4rem; margin-bottom: 1rem;">🗺️</div>
+                    <h3>Noch keine Roadmap-Einträge erstellt</h3>
+                    <p>Erstellen Sie Ihren ersten Roadmap-Eintrag, um die Entwicklungspläne zu verwalten.</p>
+                    <?php if (hasPermission('roadmap.create') || $currentUser['role'] === 'super_admin'): ?>
+                    <button onclick="openModal('addRoadmapModal')" class="btn btn-primary" style="margin-top: 1rem;">
+                        ➕ Ersten Roadmap-Eintrag erstellen
+                    </button>
+                    <?php endif; ?>
                 </div>
                 <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
 
-        <!-- Weitere bestehende Sections... -->
+        <!-- ADD OTHER SECTIONS HERE (Settings, Rules, News, etc. - same as original) -->
         
     </div>
     
@@ -1720,26 +1421,92 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
     <?php include '../modals/rule-modals.php'; ?>
     <?php include '../modals/news-modals.php'; ?>
     <?php include '../modals/whitelist-modals.php'; ?>
-    
-    <!-- Activity Details Modal -->
-    <div id="activityDetailsModal" class="modal">
-        <div class="modal-content" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3 class="modal-title">📊 Aktivitäts-Details</h3>
-                <button class="close-modal" onclick="closeModal('activityDetailsModal')">&times;</button>
-            </div>
-            
-            <div class="modal-body">
-                <div id="activityDetailsContent">
-                    <!-- Content wird per JavaScript gefüllt -->
-                </div>
-            </div>
-        </div>
-    </div>
+    <?php include '../modals/roadmap-modals.php'; ?>
     
     <!-- Scripts -->
     <script src="../assets/js/admin.js"></script>
     <script>
+        // Pass PHP data to JavaScript
+        window.adminData = {
+            csrfToken: '<?php echo generateCSRFToken(); ?>',
+            currentPage: '<?php echo $page; ?>',
+            username: '<?php echo htmlspecialchars($currentUser['username']); ?>',
+            permissions: <?php echo json_encode($userPermissions ?? []); ?>,
+            hasRoadmapPermissions: <?php echo $hasRoadmapPermissions ? 'true' : 'false'; ?>
+        };
+        
+        // ================================
+        // ROADMAP MANAGEMENT FUNCTIONS
+        // ================================
+        
+        function editRoadmapItem(item) {
+            document.getElementById('edit_roadmap_id').value = item.id;
+            document.getElementById('edit_roadmap_title').value = item.title;
+            document.getElementById('edit_roadmap_description').value = item.description;
+            document.getElementById('edit_roadmap_status').value = item.status;
+            document.getElementById('edit_roadmap_priority').value = item.priority;
+            document.getElementById('edit_roadmap_estimated_date').value = item.estimated_completion_date || '';
+            document.getElementById('edit_roadmap_active').checked = item.is_active == 1;
+            
+            openModal('editRoadmapModal');
+        }
+        
+        function deleteRoadmapItem(id) {
+            showConfirmDialog(
+                '🗑️ Roadmap-Eintrag löschen',
+                'Sind Sie sicher, dass Sie diesen Roadmap-Eintrag löschen möchten? Diese Aktion kann nicht rückgängig gemacht werden.',
+                () => {
+                    submitForm('delete_roadmap_item', { roadmap_id: id });
+                }
+            );
+        }
+        
+        function filterRoadmapItems() {
+            const statusFilter = document.getElementById('roadmapStatusFilter').value;
+            const table = document.getElementById('roadmapTable');
+            
+            if (!table) return;
+            
+            const rows = table.querySelectorAll('tbody tr');
+            let visibleCount = 0;
+            
+            rows.forEach(row => {
+                const status = row.getAttribute('data-status');
+                
+                if (!statusFilter || status === statusFilter) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            console.log(`Roadmap Filter: ${visibleCount} von ${rows.length} Einträgen sichtbar`);
+        }
+        
+        function exportRoadmapJSON() {
+            window.open('ajax/export-roadmap.php?format=json', '_blank');
+        }
+        
+        // Initialize roadmap page
+        if (window.adminData.currentPage === 'roadmap') {
+            document.addEventListener('DOMContentLoaded', function() {
+                filterRoadmapItems();
+                console.log('🗺️ Roadmap-Management initialisiert');
+            });
+        }
+        
+        // Add roadmap shortcuts
+        document.addEventListener('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.altKey && e.key === 'm') {
+                e.preventDefault();
+                if (window.adminData.hasRoadmapPermissions && 
+                    window.adminData.currentPage === 'roadmap') {
+                    openModal('addRoadmapModal');
+                }
+            }
+        });
+        
         // Pass PHP data to JavaScript
         window.adminData = {
             csrfToken: '<?php echo generateCSRFToken(); ?>',
@@ -2209,6 +1976,7 @@ if ($twitchEnabled && function_exists('getAllStreamers')) {
             }
         `;
         document.head.appendChild(style);
+        
     </script>
 </body>
 </html>

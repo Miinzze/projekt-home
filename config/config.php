@@ -1,7 +1,7 @@
 <?php
 /**
  * Hauptkonfiguration für FiveM Zombie RP Website
- * Erweitert mit Benutzerverwaltung und Berechtigungssystem
+ * Erweitert mit Benutzerverwaltung, Berechtigungssystem und Roadmap-Management
  */
 
 // Zeitzone setzen
@@ -53,7 +53,17 @@ define('API_RATE_LIMIT', 100); // Anfragen pro Stunde
 define('AVATAR_MAX_SIZE', 2097152); // 2MB in Bytes
 define('AVATAR_ALLOWED_TYPES', ['image/jpeg', 'image/png', 'image/gif']);
 
-// Standard-Berechtigungen definieren
+// Roadmap-Einstellungen
+define('ROADMAP_ITEMS_PER_PAGE', 10);
+define('ROADMAP_MAX_PRIORITY', 5);
+define('ROADMAP_AUTO_COMPLETE_ON_DATE', false); // Automatisch als "completed" markieren wenn Datum erreicht
+
+// Streamer-Integration Einstellungen
+define('TWITCH_API_URL', 'https://api.twitch.tv/helix');
+define('TWITCH_MAX_STREAMS', 5);
+define('TWITCH_CACHE_TIME', 300); // 5 Minuten
+
+// Standard-Berechtigungen definieren (ERWEITERT)
 define('AVAILABLE_PERMISSIONS', [
     // Benutzer-Management
     'users.create' => 'Neue Benutzer erstellen',
@@ -97,6 +107,21 @@ define('AVAILABLE_PERMISSIONS', [
     'rules.update' => 'Regeln bearbeiten',
     'rules.delete' => 'Regeln löschen',
     
+    // ROADMAP-MANAGEMENT (NEU)
+    'roadmap.create' => 'Roadmap-Einträge erstellen',
+    'roadmap.read' => 'Roadmap-Einträge anzeigen',
+    'roadmap.update' => 'Roadmap-Einträge bearbeiten',
+    'roadmap.delete' => 'Roadmap-Einträge löschen',
+    'roadmap.publish' => 'Roadmap-Einträge veröffentlichen',
+    'roadmap.export' => 'Roadmap-Daten exportieren',
+    
+    // STREAMER-MANAGEMENT (NEU)
+    'streamers.read' => 'Streamer-Daten anzeigen',
+    'streamers.update' => 'Streamer-Daten bearbeiten',
+    'streamers.add' => 'Neue Streamer hinzufügen',
+    'streamers.remove' => 'Streamer entfernen',
+    'streamers.config' => 'Streamer-Konfiguration bearbeiten',
+    
     // Logs und Überwachung
     'logs.read' => 'System-Logs anzeigen',
     'logs.delete' => 'System-Logs löschen',
@@ -105,6 +130,74 @@ define('AVAILABLE_PERMISSIONS', [
     // API-Zugriff
     'api.access' => 'API-Zugriff',
     'api.admin' => 'Admin-API Zugriff'
+]);
+
+// Status-Konfiguration für Roadmap-Einträge
+define('ROADMAP_STATUSES', [
+    'planned' => [
+        'label' => 'Geplant',
+        'color' => '#6b7280',
+        'icon' => '📋',
+        'description' => 'Feature ist für die Zukunft vorgesehen'
+    ],
+    'in_progress' => [
+        'label' => 'In Arbeit',
+        'color' => '#f59e0b',
+        'icon' => '⚙️',
+        'description' => 'Entwicklung läuft aktiv'
+    ],
+    'testing' => [
+        'label' => 'Testing',
+        'color' => '#8b5cf6',
+        'icon' => '🧪',
+        'description' => 'Feature wird getestet und optimiert'
+    ],
+    'completed' => [
+        'label' => 'Abgeschlossen',
+        'color' => '#10b981',
+        'icon' => '✅',
+        'description' => 'Feature ist live und verfügbar'
+    ],
+    'cancelled' => [
+        'label' => 'Abgebrochen',
+        'color' => '#ef4444',
+        'icon' => '❌',
+        'description' => 'Feature wird nicht umgesetzt'
+    ]
+]);
+
+// Prioritäts-Konfiguration für Roadmap-Einträge
+define('ROADMAP_PRIORITIES', [
+    1 => [
+        'label' => 'Sehr hoch',
+        'color' => '#ff4444',
+        'icon' => '🔥',
+        'description' => 'Kritische Features, Bugfixes oder Updates'
+    ],
+    2 => [
+        'label' => 'Hoch',
+        'color' => '#ff8800',
+        'icon' => '🟠',
+        'description' => 'Wichtige Features für das Gameplay'
+    ],
+    3 => [
+        'label' => 'Normal',
+        'color' => '#ffaa00',
+        'icon' => '🟡',
+        'description' => 'Standard-Features und Verbesserungen'
+    ],
+    4 => [
+        'label' => 'Niedrig',
+        'color' => '#0088ff',
+        'icon' => '🔵',
+        'description' => 'Nice-to-have Features'
+    ],
+    5 => [
+        'label' => 'Sehr niedrig',
+        'color' => '#888888',
+        'icon' => '⚪',
+        'description' => 'Zukunftsideen und Experimente'
+    ]
 ]);
 
 // Session-Konfiguration
@@ -227,7 +320,7 @@ function destroyUserSession() {
 }
 
 /**
- * Berechtigungs-System
+ * Erweitertetes Berechtigungs-System
  */
 function hasPermission($permission) {
     $user = getCurrentUser();
@@ -274,6 +367,136 @@ function requirePermission($permission) {
 function isAjaxRequest() {
     return isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
            strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+}
+
+/**
+ * Roadmap-spezifische Funktionen
+ */
+function getRoadmapStatusLabel($status) {
+    $statuses = ROADMAP_STATUSES;
+    return $statuses[$status]['label'] ?? ucfirst($status);
+}
+
+function getRoadmapStatusColor($status) {
+    $statuses = ROADMAP_STATUSES;
+    return $statuses[$status]['color'] ?? '#6b7280';
+}
+
+function getRoadmapStatusIcon($status) {
+    $statuses = ROADMAP_STATUSES;
+    return $statuses[$status]['icon'] ?? '📋';
+}
+
+function getRoadmapPriorityLabel($priority) {
+    $priorities = ROADMAP_PRIORITIES;
+    return $priorities[$priority]['label'] ?? 'Normal';
+}
+
+function getRoadmapPriorityColor($priority) {
+    $priorities = ROADMAP_PRIORITIES;
+    return $priorities[$priority]['color'] ?? '#ffaa00';
+}
+
+function getRoadmapPriorityIcon($priority) {
+    $priorities = ROADMAP_PRIORITIES;
+    return $priorities[$priority]['icon'] ?? '🟡';
+}
+
+function createRoadmapItem($title, $description, $status = 'planned', $priority = 3, $estimatedDate = null, $createdBy = null) {
+    if (!function_exists('insertData')) {
+        return false;
+    }
+    
+    if (!$createdBy) {
+        $currentUser = getCurrentUser();
+        $createdBy = $currentUser['id'] ?? null;
+    }
+    
+    if (!$createdBy) {
+        return false;
+    }
+    
+    return insertData('roadmap_items', [
+        'title' => $title,
+        'description' => $description,
+        'status' => $status,
+        'priority' => $priority,
+        'estimated_completion_date' => $estimatedDate,
+        'created_by' => $createdBy
+    ]);
+}
+
+function updateRoadmapItem($id, $data, $updatedBy = null) {
+    if (!function_exists('updateData')) {
+        return false;
+    }
+    
+    if (!$updatedBy) {
+        $currentUser = getCurrentUser();
+        $updatedBy = $currentUser['id'] ?? null;
+    }
+    
+    if ($updatedBy) {
+        $data['updated_by'] = $updatedBy;
+    }
+    
+    return updateData('roadmap_items', $data, 'id = :id', ['id' => $id]);
+}
+
+function deleteRoadmapItem($id) {
+    if (!function_exists('executeQuery')) {
+        return false;
+    }
+    
+    return executeQuery("DELETE FROM roadmap_items WHERE id = :id", ['id' => $id]);
+}
+
+function getRoadmapItems($status = null, $priority = null, $isActive = true, $limit = null) {
+    if (!function_exists('fetchAll')) {
+        return [];
+    }
+    
+    $sql = "SELECT r.*, 
+                   creator.username as created_by_name, creator.first_name as creator_first_name, creator.last_name as creator_last_name,
+                   updater.username as updated_by_name, updater.first_name as updater_first_name, updater.last_name as updater_last_name
+            FROM roadmap_items r 
+            LEFT JOIN admins creator ON r.created_by = creator.id
+            LEFT JOIN admins updater ON r.updated_by = updater.id
+            WHERE 1=1";
+    
+    $params = [];
+    
+    if ($status !== null) {
+        $sql .= " AND r.status = :status";
+        $params['status'] = $status;
+    }
+    
+    if ($priority !== null) {
+        $sql .= " AND r.priority = :priority";
+        $params['priority'] = $priority;
+    }
+    
+    if ($isActive !== null) {
+        $sql .= " AND r.is_active = :is_active";
+        $params['is_active'] = $isActive ? 1 : 0;
+    }
+    
+    $sql .= " ORDER BY r.priority ASC, r.created_at DESC";
+    
+    if ($limit) {
+        $sql .= " LIMIT :limit";
+        $params['limit'] = $limit;
+    }
+    
+    return fetchAll($sql, $params);
+}
+
+function getRoadmapItemsByStatus($status, $isActive = true) {
+    return getRoadmapItems($status, null, $isActive);
+}
+
+function getRoadmapItemsByPriority($priority, $isActive = true) {
+    return getRoadmapItems(null, $priority, $isActive);
 }
 
 /**
